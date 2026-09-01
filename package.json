@@ -1,0 +1,21 @@
+{
+  "name": "challan_automation_pipeline",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "csv-parser": "^3.2.1",
+    "dotenv": "^17.4.2",
+    "googleapis": "^176.0.0",
+    "playwright": "^1.62.1",
+    "readline-sync": "^1.4.10",
+    "xlsx": "^0.18.5"
+  }
+}

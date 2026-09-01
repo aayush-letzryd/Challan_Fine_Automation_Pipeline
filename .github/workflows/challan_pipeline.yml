@@ -1,0 +1,39 @@
+name: Challan Fine Automation Pipeline (Alternate Days)
+
+on:
+  schedule:
+    # Runs at 04:00 UTC (9:30 AM IST) on alternate days (Monday, Wednesday, Friday)
+    - cron: '0 4 * * 1,3,5'
+  workflow_dispatch: # Allows manual trigger from GitHub UI anytime
+
+jobs:
+  scrape-challans:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers & Dependencies
+        run: npx playwright install chromium --with-deps
+
+      - name: Run Challan Scraping Pipeline
+        run: node main.js
+        env:
+          HEADLESS: "true"
+
+      - name: Commit & Push Updated Checkpoints & Results
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add checkpoint.json challan_results.csv
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: auto-update challan results and checkpoints [skip ci]" && git push)
