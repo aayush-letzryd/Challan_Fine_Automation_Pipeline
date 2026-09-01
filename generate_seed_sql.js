@@ -22,7 +22,7 @@ function generateSeedSql() {
 
   const sqlStatements = [
     '-- ==============================================================',
-    '-- Initial Seed Data for PostgreSQL table: vehicle_challans',
+    '-- Initial Seed Data for PostgreSQL table: vehicle_challans (12 Columns)',
     '-- ==============================================================\n'
   ];
 
@@ -45,21 +45,20 @@ function generateSeedSql() {
     }
     cells.push(currentCell.replace(/^"|"$/g, '').replace(/""/g, '"'));
 
-    const searchRegNo = escapeSql(cells[0]);
+    const vehicleRegNo = escapeSql(cells[0]);
     const rcHolderName = escapeSql(cells[1]);
     const totalAmountPending = parseFloat(cells[2]) || 0;
     const noticeNo = escapeSql(cells[3]);
-    const regNo = escapeSql(cells[4]);
-    const noticeGenDate = escapeSql(cells[5]);
-    const violationDate = escapeSql(cells[6]);
-    const violationTime = escapeSql(cells[7]);
-    const pointName = escapeSql(cells[8]);
-    const offenceDesc = escapeSql(cells[9]);
-    const fineAmount = parseFloat(cells[10]) || 0;
-    const scrapedTimestamp = escapeSql(cells[11]);
-    const status = escapeSql(cells[12] || 'PROCESSED');
+    const noticeGenDate = escapeSql(cells[4]);
+    const violationDate = escapeSql(cells[5]);
+    const violationTime = escapeSql(cells[6]);
+    const pointName = escapeSql(cells[7]);
+    const offenceDesc = escapeSql(cells[8]);
+    const fineAmount = parseFloat(cells[9]) || 0;
+    const scrapedTimestamp = escapeSql(cells[10]);
+    const status = escapeSql(cells[11] || 'PROCESSED');
 
-    const insertSql = `INSERT INTO vehicle_challans (search_reg_no, rc_holder_name, total_amount_pending, notice_no, reg_no, notice_generation_date, violation_date, violation_time, point_name, offence_description, fine_amount, scraped_timestamp, status) VALUES (${searchRegNo}, ${rcHolderName}, ${totalAmountPending}, ${noticeNo}, ${regNo}, ${noticeGenDate}, ${violationDate}, ${violationTime}, ${pointName}, ${offenceDesc}, ${fineAmount}, ${scrapedTimestamp}, ${status}) ON CONFLICT (search_reg_no, notice_no, offence_description) DO NOTHING;`;
+    const insertSql = `INSERT INTO vehicle_challans (vehicle_reg_no, rc_holder_name, total_amount_pending, notice_no, notice_generation_date, violation_date, violation_time, point_name, offence_description, fine_amount, scraped_timestamp, status) VALUES (${vehicleRegNo}, ${rcHolderName}, ${totalAmountPending}, ${noticeNo}, ${noticeGenDate}, ${violationDate}, ${violationTime}, ${pointName}, ${offenceDesc}, ${fineAmount}, ${scrapedTimestamp}, ${status}) ON CONFLICT (vehicle_reg_no, notice_no, offence_description) DO NOTHING;`;
 
     sqlStatements.push(insertSql);
   }

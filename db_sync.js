@@ -74,11 +74,10 @@ async function syncToPostgres(customClientConfig = null) {
 
     const upsertQuery = `
       INSERT INTO vehicle_challans (
-        search_reg_no,
+        vehicle_reg_no,
         rc_holder_name,
         total_amount_pending,
         notice_no,
-        reg_no,
         notice_generation_date,
         violation_date,
         violation_time,
@@ -88,8 +87,8 @@ async function syncToPostgres(customClientConfig = null) {
         scraped_timestamp,
         status,
         updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP)
-      ON CONFLICT (search_reg_no, notice_no, offence_description)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP)
+      ON CONFLICT (vehicle_reg_no, notice_no, offence_description)
       DO UPDATE SET
         rc_holder_name = EXCLUDED.rc_holder_name,
         total_amount_pending = EXCLUDED.total_amount_pending,
@@ -100,26 +99,24 @@ async function syncToPostgres(customClientConfig = null) {
     `;
 
     for (const r of rows) {
-      const searchRegNo = r[0] || 'N/A';
+      const vehicleRegNo = r[0] || 'N/A';
       const rcHolderName = r[1] || 'N/A';
       const totalAmountPending = parseFloat(r[2]) || 0;
       const noticeNo = r[3] || 'N/A';
-      const regNo = r[4] || 'N/A';
-      const noticeGenDate = r[5] || 'N/A';
-      const violationDate = r[6] || 'N/A';
-      const violationTime = r[7] || 'N/A';
-      const pointName = r[8] || 'N/A';
-      const offenceDesc = r[9] || 'N/A';
-      const fineAmount = parseFloat(r[10]) || 0;
-      const scrapedTimestamp = r[11] || 'N/A';
-      const status = r[12] || 'PROCESSED';
+      const noticeGenDate = r[4] || 'N/A';
+      const violationDate = r[5] || 'N/A';
+      const violationTime = r[6] || 'N/A';
+      const pointName = r[7] || 'N/A';
+      const offenceDesc = r[8] || 'N/A';
+      const fineAmount = parseFloat(r[9]) || 0;
+      const scrapedTimestamp = r[10] || 'N/A';
+      const status = r[11] || 'PROCESSED';
 
       await client.query(upsertQuery, [
-        searchRegNo,
+        vehicleRegNo,
         rcHolderName,
         totalAmountPending,
         noticeNo,
-        regNo,
         noticeGenDate,
         violationDate,
         violationTime,

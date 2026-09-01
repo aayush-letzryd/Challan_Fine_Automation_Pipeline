@@ -200,7 +200,7 @@ class ChallanBrowserEngine {
   }
 
   /**
-   * Scrapes Challans for a single vehicle registration number.
+   * Scrapes Challans for a single vehicle registration number with strict stale DOM verification.
    */
   async scrapeVehicleChallan(vehicleObj) {
     const regNo = vehicleObj.clean;
@@ -210,6 +210,12 @@ class ChallanBrowserEngine {
 
     try {
       await dismissPopup(this.page);
+
+      // 1. Clear any old/lingering table elements from previous search to avoid stale reads
+      await this.page.evaluate(() => {
+        const oldTables = document.querySelectorAll('table');
+        oldTables.forEach(t => t.remove());
+      }).catch(() => {});
 
       // Ensure 'Registration No' radio button is selected
       const regNoRadio = this.page.locator('input[type="radio"][value*="Registration"], #RegistrationNo, input[id*="Registration"], input[value*="Registration"]').first();
@@ -235,7 +241,7 @@ class ChallanBrowserEngine {
       await searchBtn.click({ force: true });
 
       // Wait for search result response
-      await delay(2500);
+      await delay(3000);
 
       // Check if alert or "No Records Found" message appears
       const pageText = await this.page.innerText('body');
@@ -243,12 +249,11 @@ class ChallanBrowserEngine {
 
       if (hasNoRecordsMsg) {
         console.log(`[BrowserEngine] Status: NO FINES / CLEAN for vehicle ${regNo}`);
-        const record = {
-          searchRegNo: regNo,
+        return [{
+          vehicleRegNo: regNo,
           rcHolderName: 'N/A',
           totalAmountPending: 0,
           noticeNo: 'N/A',
-          regNo: regNo,
           noticeGenerationDate: 'N/A',
           violationDate: 'N/A',
           violationTime: 'N/A',
@@ -257,18 +262,19 @@ class ChallanBrowserEngine {
           fineAmount: 0,
           scrapedTimestamp: getFormattedTimestampIST(),
           status: 'NO_FINES'
-        };
-
-        return [record];
+        }];
       }
 
-      // Extract RC Holder Name if present
+      // Extract RC Holder Name if present (ignore validation prompts like "Please Enter RC Holder Name")
       let rcHolderName = 'N/A';
       try {
         const rcElement = await this.page.$('text=RC Holder Name');
         if (rcElement) {
           const parentText = await rcElement.evaluate(el => el.parentElement.innerText);
-          rcHolderName = parentText.replace('RC Holder Name', '').replace(':', '').trim();
+          const candidate = parentText.replace('RC Holder Name', '').replace(':', '').trim();
+          if (candidate && !candidate.toLowerCase().includes('please enter') && !candidate.toLowerCase().includes('enter rc')) {
+            rcHolderName = candidate;
+          }
         }
       } catch (e) {
         // ignore
@@ -278,15 +284,57 @@ class ChallanBrowserEngine {
       const tableRows = await this.page.$$('table tbody tr');
       console.log(`[BrowserEngine] Found ${tableRows.length} table row(s) for vehicle ${regNo}.`);
 
-      const records = [];
+      const tempRecords = [];
+      let cumulativeFine = 0;
 
-      if (tableRows.length === 0) {
-        records.push({
-          searchRegNo: regNo,
+      for (const row of tableRows) {
+        const cells = await row.$$('td');
+        if (cells.length >= 8) {
+          const cellTexts = [];
+          for (const cell of cells) {
+            const txt = await cell.innerText();
+            cellTexts.push(txt.trim());
+          }
+
+          const noticeNo = cellTexts[1] || 'N/A';
+          const rowRegNoRaw = cellTexts[2] || '';
+          const rowRegNoClean = rowRegNoRaw.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+          // STRICT STALE ROW VERIFICATION: Discard rows if table belongs to another vehicle
+          if (rowRegNoClean && rowRegNoClean !== regNo) {
+            console.warn(`[BrowserEngine Warning] Stale table row detected (${rowRegNoClean} != ${regNo}). Ignoring stale row.`);
+            continue;
+          }
+
+          const noticeGenDate = cellTexts[3] || 'N/A';
+          const violationDate = cellTexts[4] || 'N/A';
+          const violationTime = cellTexts[5] || 'N/A';
+          const pointName = cellTexts[6] || 'N/A';
+          const offenceDesc = cellTexts[7] || 'N/A';
+          const fineAmtStr = cellTexts[8] ? cellTexts[8].replace(/[^0-9]/g, '') : '0';
+          const fineAmt = parseInt(fineAmtStr, 10) || 0;
+          cumulativeFine += fineAmt;
+
+          tempRecords.push({
+            noticeNo,
+            noticeGenDate,
+            violationDate,
+            violationTime,
+            pointName,
+            offenceDesc,
+            fineAmt
+          });
+        }
+      }
+
+      // If no valid matching rows exist for this car, mark as CLEAN / NO_FINES
+      if (tempRecords.length === 0) {
+        console.log(`[BrowserEngine] Status: NO FINES FOUND for vehicle ${regNo}`);
+        return [{
+          vehicleRegNo: regNo,
           rcHolderName: rcHolderName,
           totalAmountPending: 0,
           noticeNo: 'N/A',
-          regNo: regNo,
           noticeGenerationDate: 'N/A',
           violationDate: 'N/A',
           violationTime: 'N/A',
@@ -295,74 +343,34 @@ class ChallanBrowserEngine {
           fineAmount: 0,
           scrapedTimestamp: getFormattedTimestampIST(),
           status: 'NO_FINES'
-        });
-      } else {
-        let cumulativeFine = 0;
-        const tempRecords = [];
-
-        for (const row of tableRows) {
-          const cells = await row.$$('td');
-          if (cells.length >= 8) {
-            const cellTexts = [];
-            for (const cell of cells) {
-              const txt = await cell.innerText();
-              cellTexts.push(txt.trim());
-            }
-
-            const noticeNo = cellTexts[1] || 'N/A';
-            const vRegNo = cellTexts[2] || regNo;
-            const noticeGenDate = cellTexts[3] || 'N/A';
-            const violationDate = cellTexts[4] || 'N/A';
-            const violationTime = cellTexts[5] || 'N/A';
-            const pointName = cellTexts[6] || 'N/A';
-            const offenceDesc = cellTexts[7] || 'N/A';
-            const fineAmtStr = cellTexts[8] ? cellTexts[8].replace(/[^0-9]/g, '') : '0';
-            const fineAmt = parseInt(fineAmtStr, 10) || 0;
-            cumulativeFine += fineAmt;
-
-            tempRecords.push({
-              noticeNo,
-              vRegNo,
-              noticeGenDate,
-              violationDate,
-              violationTime,
-              pointName,
-              offenceDesc,
-              fineAmt
-            });
-          }
-        }
-
-        for (const item of tempRecords) {
-          records.push({
-            searchRegNo: regNo,
-            rcHolderName: rcHolderName,
-            totalAmountPending: cumulativeFine,
-            noticeNo: item.noticeNo,
-            regNo: item.vRegNo,
-            noticeGenerationDate: item.noticeGenDate,
-            violationDate: item.violationDate,
-            violationTime: item.violationTime,
-            pointName: item.pointName,
-            offenceDescription: item.offenceDesc,
-            fineAmount: item.fineAmt,
-            scrapedTimestamp: getFormattedTimestampIST(),
-            status: 'HAS_FINES'
-          });
-        }
+        }];
       }
 
-      console.log(`[BrowserEngine] Extracted ${records.length} record(s) for vehicle ${regNo}. Total Pending Fine: ₹${records[0]?.totalAmountPending || 0}`);
+      const records = tempRecords.map(item => ({
+        vehicleRegNo: regNo,
+        rcHolderName: rcHolderName,
+        totalAmountPending: cumulativeFine,
+        noticeNo: item.noticeNo,
+        noticeGenerationDate: item.noticeGenDate,
+        violationDate: item.violationDate,
+        violationTime: item.violationTime,
+        pointName: item.pointName,
+        offenceDescription: item.offenceDesc,
+        fineAmount: item.fineAmt,
+        scrapedTimestamp: getFormattedTimestampIST(),
+        status: 'HAS_FINES'
+      }));
+
+      console.log(`[BrowserEngine] Extracted ${records.length} valid record(s) for vehicle ${regNo}. Total Pending Fine: ₹${records[0]?.totalAmountPending || 0}`);
       return records;
 
     } catch (err) {
       console.error(`[BrowserEngine Error] Scraping failed for vehicle ${regNo}: ${err.message}`);
       return [{
-        searchRegNo: regNo,
+        vehicleRegNo: regNo,
         rcHolderName: 'ERROR',
         totalAmountPending: 0,
         noticeNo: 'ERROR',
-        regNo: regNo,
         noticeGenerationDate: 'N/A',
         violationDate: 'N/A',
         violationTime: 'N/A',

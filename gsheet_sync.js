@@ -7,11 +7,10 @@ const config = require('./config');
 const CSV_PATH = config.LOCAL_RESULTS_CSV || path.resolve(__dirname, 'challan_results.csv');
 
 const HEADERS = [
-  'Search Reg No',
+  'Vehicle Reg No',
   'RC Holder Name',
   'Total Amount Pending',
   'Notice No.',
-  'Reg No.',
   'Notice Generation Date',
   'Violation Date',
   'Violation Time',
@@ -52,11 +51,10 @@ function appendRecordsToCsv(records) {
 
   const lines = records.map(record => {
     return [
-      record.searchRegNo || '',
+      record.vehicleRegNo || record.searchRegNo || record.regNo || '',
       record.rcHolderName || '',
       record.totalAmountPending !== undefined ? record.totalAmountPending : '',
       record.noticeNo || '',
-      record.regNo || '',
       record.noticeGenerationDate || '',
       record.violationDate || '',
       record.violationTime || '',
@@ -95,7 +93,6 @@ function postJsonWithRedirect(targetUrl, jsonData) {
       // Handle Google Apps Script 302 Redirect
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         const redirectUrl = res.headers.location;
-        // Follow redirect using GET
         https.get(redirectUrl, (redirectRes) => {
           let body = '';
           redirectRes.on('data', chunk => body += chunk);
