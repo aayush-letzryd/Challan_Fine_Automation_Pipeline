@@ -1,56 +1,58 @@
 const config = require('./config');
 
-const OTP_SHEET_CSV_URL = config.OTP_SHEET_CSV_URL || 'https://docs.google.com/spreadsheets/d/1XSdWwBHmGLqey7-C16B_rMiHllYmmsA_LGbH_LogW_E/export?format=csv';
-
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const OTP_SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${config.OTP_SHEET_ID}/export?format=csv&gid=0`;
 
 /**
- * Checks if an SMS row is specifically from Karnataka One / Traffic Fine portal.
+ * Checks if the SMS message or sender is from Karnataka One / Bangalore Traffic Police.
  */
-function isKarnatakaOneMessage(text, sender = '') {
-  const combined = `${text || ''} ${sender || ''}`.toUpperCase();
-  return (
-    combined.includes('KARONE') ||
-    combined.includes('KONE') ||
-    combined.includes('DPAR') ||
-    combined.includes('VALIDATE MOBILE') ||
-    combined.includes('KARNATAKA ONE')
-  );
+function isKarnatakaOneMessage(message, from) {
+  const text = `${message || ''} ${from || ''}`.toUpperCase();
+
+  // Explicitly reject non-Karnataka One senders
+  if (text.includes('IDFC') || text.includes('DEBIT') || text.includes('CREDIT') || text.includes('ACTGRP') || text.includes('FIBERNET') || text.includes('SWIGGY') || text.includes('ZOMATO')) {
+    return false;
+  }
+
+  const isKarOne = text.includes('KARONE') ||
+                   text.includes('KONE') ||
+                   text.includes('KARNATAKA ONE') ||
+                   text.includes('DPAR') ||
+                   text.includes('VALIDATE MOBILE') ||
+                   text.includes('TRAFFIC FINE');
+
+  return isKarOne;
 }
 
 /**
- * Extracts 4-digit or 6-digit OTP code from an SMS message body, excluding year numbers (2024-2027).
+ * Extracts 4-digit or 6-digit OTP code specifically from Karnataka One SMS template.
  */
-function extractOtpFromMessage(text) {
-  if (!text) return null;
+function extractOtpFromMessage(msg) {
+  if (!msg) return null;
 
-  // Strategy 1: Look for number right after "is", "OTP is", "is: ", "Mobile No. is", etc.
-  const keywordMatch = text.match(/(?:is|OTP|code|no\.?\s*is)\s*[:\s]?\s*(\b\d{4,6}\b)/i);
-  if (keywordMatch && !['2024', '2025', '2026', '2027'].includes(keywordMatch[1])) {
-    return keywordMatch[1];
-  }
+  // Pattern 1: "Your OTP to Validate Mobile No. is 5871"
+  const m1 = msg.match(/(?:Validate Mobile No\.\s*is|is\s*valid\s*for|OTP\s*is|code\s*is)\s*([0-9]{4,6})/i);
+  if (m1 && m1[1]) return m1[1];
 
-  // Strategy 2: Look for 4-digit to 6-digit standalone numbers
-  const matches = text.match(/\b\d{6}\b/g) || text.match(/\b\d{4}\b/g);
-  if (matches) {
-    for (const code of matches) {
-      if (!['2024', '2025', '2026', '2027'].includes(code)) {
-        return code;
-      }
-    }
-  }
+  // Pattern 2: "is 5871 And the OTP is valid"
+  const m2 = msg.match(/\bis\s+([0-9]{4,6})\b/i);
+  if (m2 && m2[1]) return m2[1];
+
+  // Pattern 3: Fallback 4-6 digit sequence in Karnataka One message
+  const m3 = msg.match(/\b([0-9]{4,6})\b/);
+  if (m3 && m3[1]) return m3[1];
 
   return null;
 }
 
 /**
- * Parses raw CSV into an array of message row objects.
+ * Parses raw CSV content from Google Sheets into structured row objects.
  */
 function parseCsvRows(csvText) {
-  const lines = csvText.trim().split('\n').filter(Boolean);
+  const lines = csvText.trim().split('\n').filter(line => line.trim().length > 0);
   if (lines.length <= 1) return [];
 
   const rows = [];
+
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
     const cells = [];
@@ -138,19 +140,19 @@ async function fetchFreshOTP(initialSnapshot = new Set(), maxWaitSeconds = 90) {
         console.log(`[OTPFetcher] Attempt ${attempts} (${Math.round((Date.now() - startTime) / 1000)}s): Waiting for new KARONE SMS... (Current top row: ${topSample})`);
       }
     } catch (err) {
-      console.warn(`[OTPFetcher] Attempt ${attempts} polling warning: ${err.message}`);
+      console.warn(`[OTPFetcher Warning] Network fetch error: ${err.message}`);
     }
 
-    await delay(3000);
+    await new Promise(resolve => setTimeout(resolve, 3000));
   }
 
   throw new Error(`Timeout: No new KARNATAKA ONE OTP received after ${maxWaitSeconds} seconds.`);
 }
 
 module.exports = {
-  getExistingSnapshot,
-  fetchFreshOTP,
-  extractOtpFromMessage,
   isKarnatakaOneMessage,
-  OTP_SHEET_CSV_URL
+  extractOtpFromMessage,
+  parseCsvRows,
+  getExistingSnapshot,
+  fetchFreshOTP
 };
