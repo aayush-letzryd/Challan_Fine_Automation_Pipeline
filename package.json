@@ -1,19 +1,29 @@
 {
   "name": "challan_automation_pipeline",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Enterprise automated pipeline for Karnataka One Challan fine scraping, Google Sheets sync, and PostgreSQL integration",
+  "main": "main.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node main.js",
+    "sync:db": "node db_sync.js",
+    "convert:ist": "node convert_timestamps_to_ist.js",
+    "seed:sql": "node generate_seed_sql.js"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "challan",
+    "automation",
+    "playwright",
+    "google-sheets",
+    "postgres"
+  ],
+  "author": "aayush-letzryd",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
     "csv-parser": "^3.2.1",
     "dotenv": "^17.4.2",
     "googleapis": "^176.0.0",
+    "pg": "^8.13.1",
     "playwright": "^1.62.1",
     "readline-sync": "^1.4.10",
     "xlsx": "^0.18.5"
