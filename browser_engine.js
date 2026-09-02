@@ -142,7 +142,7 @@ class ChallanBrowserEngine {
       console.log(`[BrowserEngine] Polling live Google Sheet for NEW incoming OTP SMS (Sheet ID: ${config.OTP_SHEET_ID})...`);
       let otpCode = '';
       try {
-        otpCode = await fetchFreshOTP(initialSnapshot, 50);
+        otpCode = await fetchFreshOTP(initialSnapshot, 60);
       } catch (otpErr) {
         console.warn(`[BrowserEngine Warning] Attempt ${attempt} sheet polling timed out (${otpErr.message}).`);
         
@@ -200,7 +200,7 @@ class ChallanBrowserEngine {
   }
 
   /**
-   * Scrapes Challans for a single vehicle registration number with multi-layer RC Holder Name & strict DOM verification.
+   * Scrapes Challans for a single vehicle registration number with precision RC Holder Name extraction.
    */
   async scrapeVehicleChallan(vehicleObj) {
     const regNo = vehicleObj.clean;
@@ -241,7 +241,55 @@ class ChallanBrowserEngine {
       await searchBtn.click({ force: true });
 
       // Wait for search result response
-      await delay(3000);
+      await delay(3500);
+
+      // Extract RC Holder Name BEFORE checking table or messages
+      let rcHolderName = 'N/A';
+      try {
+        rcHolderName = await this.page.evaluate(() => {
+          // 1. Precise line extraction from body text
+          const bodyText = document.body.innerText || '';
+          const lines = bodyText.split('\n').map(l => l.trim()).filter(Boolean);
+
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].toUpperCase();
+            if (line === 'RC HOLDER NAME' || line.startsWith('RC HOLDER NAME:')) {
+              if (lines[i + 1]) {
+                const nextLine = lines[i + 1].trim();
+                const nextUpper = nextLine.toUpperCase();
+                if (nextLine && !nextUpper.includes('AMOUNT TO BE PAID') && !nextUpper.includes('PLEASE ENTER') && !nextUpper.includes('VIEW DIGITAB')) {
+                  return nextLine;
+                }
+              }
+            }
+          }
+
+          // 2. Direct ID / attribute search
+          const directIds = ['#lblRCHolderName', '#lblRcHolderName', '#RCHolderName', '#txtRCHolderName', '#lblOwnerName'];
+          for (const id of directIds) {
+            const el = document.querySelector(id);
+            if (el) {
+              const val = (el.value || el.innerText || '').trim();
+              if (val && !val.toLowerCase().includes('please enter')) return val;
+            }
+          }
+
+          // 3. Regex fallback
+          const match = bodyText.match(/RC Holder Name\s*[:\-]?\s*([^\n\r]+)/i);
+          if (match && match[1]) {
+            const val = match[1].trim();
+            if (val && !val.toLowerCase().includes('please enter') && !val.toLowerCase().includes('amount to be paid')) {
+              return val;
+            }
+          }
+
+          return 'N/A';
+        });
+      } catch (e) {
+        rcHolderName = 'N/A';
+      }
+
+      console.log(`[BrowserEngine] Extracted RC Holder Name: '${rcHolderName}' for vehicle ${regNo}`);
 
       // Check if alert or "No Records Found" message appears
       const pageText = await this.page.innerText('body');
@@ -251,7 +299,7 @@ class ChallanBrowserEngine {
         console.log(`[BrowserEngine] Status: NO FINES / CLEAN for vehicle ${regNo}`);
         return [{
           vehicleRegNo: regNo,
-          rcHolderName: 'N/A',
+          rcHolderName: rcHolderName,
           totalAmountPending: 0,
           noticeNo: 'N/A',
           noticeGenerationDate: 'N/A',
@@ -264,73 +312,6 @@ class ChallanBrowserEngine {
           status: 'NO_FINES'
         }];
       }
-
-      // Multi-layer RC Holder Name Extractor
-      let rcHolderName = 'N/A';
-      try {
-        rcHolderName = await this.page.evaluate(() => {
-          // 1. Check known IDs / attributes
-          const directSelectors = [
-            '#lblRCHolderName', '#lblRcHolderName', '#RCHolderName', '#txtRCHolderName',
-            '#lblOwnerName', '#OwnerName', '[id*="RCHolder"]', '[id*="rcHolder"]',
-            '[id*="OwnerName"]', '[id*="ownerName"]'
-          ];
-          for (const sel of directSelectors) {
-            const el = document.querySelector(sel);
-            if (el) {
-              const val = (el.value || el.innerText || '').trim();
-              if (val && !val.toLowerCase().includes('please enter')) return val;
-            }
-          }
-
-          // 2. Find label / container with text 'RC Holder Name'
-          const allEls = Array.from(document.querySelectorAll('label, div, span, p, td, b, strong'));
-          const rcLabel = allEls.find(el => {
-            const txt = (el.innerText || '').trim();
-            return txt.startsWith('RC Holder Name') || txt === 'RC Holder Name:';
-          });
-
-          if (rcLabel) {
-            // Check next sibling element
-            const nextSib = rcLabel.nextElementSibling;
-            if (nextSib) {
-              const sibTxt = (nextSib.value || nextSib.innerText || '').trim();
-              if (sibTxt && !sibTxt.toLowerCase().includes('please enter') && !sibTxt.toLowerCase().includes('amount')) {
-                return sibTxt;
-              }
-            }
-
-            // Check parent element text lines
-            const parent = rcLabel.parentElement;
-            if (parent) {
-              const lines = parent.innerText.split('\n').map(l => l.trim()).filter(Boolean);
-              const labelIdx = lines.findIndex(l => l.includes('RC Holder Name'));
-              if (labelIdx !== -1 && lines[labelIdx + 1]) {
-                const nextLine = lines[labelIdx + 1].trim();
-                if (nextLine && !nextLine.toLowerCase().includes('amount') && !nextLine.toLowerCase().includes('please enter')) {
-                  return nextLine;
-                }
-              }
-            }
-          }
-
-          // 3. Regex match on body text
-          const bodyText = document.body.innerText || '';
-          const match = bodyText.match(/RC Holder Name\s*[:\-]?\s*([^\n\r]+)/i);
-          if (match && match[1]) {
-            const found = match[1].trim();
-            if (found && !found.toLowerCase().includes('please enter') && !found.toLowerCase().includes('amount')) {
-              return found;
-            }
-          }
-
-          return 'N/A';
-        });
-      } catch (e) {
-        rcHolderName = 'N/A';
-      }
-
-      console.log(`[BrowserEngine] Extracted RC Holder Name: '${rcHolderName}' for vehicle ${regNo}`);
 
       // Extract Violation Table Rows
       const tableRows = await this.page.$$('table tbody tr');
