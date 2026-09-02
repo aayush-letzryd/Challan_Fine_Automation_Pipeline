@@ -3,7 +3,7 @@ const config = require('./config');
 const { getVehiclesToProcess } = require('./vehicle_reader');
 const { loadCheckpoint, markProcessed } = require('./checkpoint');
 const ChallanBrowserEngine = require('./browser_engine');
-const { syncToGoogleSheet } = require('./gsheet_sync');
+const { syncToGoogleSheet, appendRecordsToCsv } = require('./gsheet_sync');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -20,7 +20,11 @@ async function runPipeline() {
   console.log(`* Target Google Sheet ID: ${config.GOOGLE_SHEET_ID}`);
   console.log(`* Target Google Sheet URL: ${config.GOOGLE_SHEET_URL}`);
   console.log(`* Batch Size: ${config.BATCH_SIZE} vehicles per session`);
-  console.log(`* Wait Interval: ${config.INTERVAL_MINUTES} minutes between login batches\n`);
+
+  const maxBatches = parseInt(process.env.MAX_BATCHES || '0', 10);
+  if (maxBatches > 0) {
+    console.log(`* Max Batches to Process: ${maxBatches} (Cloud/Scheduled Mode)`);
+  }
 
   // Step 1: Load vehicles from Excel file
   const allVehicles = getVehiclesToProcess(config.SOURCE_EXCEL_PATH);
@@ -56,17 +60,14 @@ async function runPipeline() {
       await engine.initBrowser();
       await engine.loginWithOTP();
 
-      let processedInSession = 0;
-
       for (let i = 0; i < currentBatch.length; i++) {
         const vehicle = currentBatch[i];
         console.log(`\n[Progress] Batch ${batchIndex} - Vehicle ${i + 1}/${currentBatch.length} (${vehicle.clean})`);
 
-        // Scrape violations for vehicle
+        // Scrape violations for vehicle with 12 fields & live RC Holder Name
         const records = await engine.scrapeVehicleChallan(vehicle);
 
         // Append to local CSV backup
-        const { appendRecordsToCsv } = require('./gsheet_sync');
         appendRecordsToCsv(records);
 
         // Mark vehicle processed in checkpoint
@@ -82,8 +83,6 @@ async function runPipeline() {
           originalName: vehicle.original
         });
 
-        processedInSession++;
-
         // Humanized delay between searches
         await delay(config.INTERACTION_DELAY_MS);
       }
@@ -92,7 +91,8 @@ async function runPipeline() {
       await engine.resetSearchSession();
       await engine.close();
 
-      // Sync to Google Sheet
+      // Sync to Google Sheet immediately after batch
+      console.log(`\n[Batch ${batchIndex}] Syncing batch records to Google Sheets...`);
       await syncToGoogleSheet();
 
       console.log(`\n===============================================================`);
@@ -100,40 +100,40 @@ async function runPipeline() {
       console.log(` Remaining vehicles to process: ${pendingVehicles.length}`);
       console.log(`===============================================================\n`);
 
+      // Check if max batches limit reached
+      if (maxBatches > 0 && batchIndex >= maxBatches) {
+        console.log(`[Main] Reached MAX_BATCHES limit (${maxBatches}). Exiting batch run cleanly.`);
+        break;
+      }
+
       batchIndex++;
 
-      // If more vehicles remain, wait for the full 15-minute interval
+      // If more vehicles remain in continuous local mode, wait interval
       if (pendingVehicles.length > 0) {
         console.log(`\n[INTERVAL WAITING] Scheduled wait of ${config.INTERVAL_MINUTES} minute(s) before next login batch...`);
-        console.log(`Waiting for session reset. Countdown running below:`);
-        
-        const totalWaitSeconds = config.INTERVAL_MINUTES * 60; // Exact 15 minutes (900 seconds)
-        
+        const totalWaitSeconds = config.INTERVAL_MINUTES * 60;
         for (let s = totalWaitSeconds; s > 0; s--) {
           process.stdout.write(`\rNext batch login starting in: ${formatTimeRemaining(s)}... `);
           await delay(1000);
         }
-        console.log(`\n\n15-minute wait completed! Starting next batch...\n`);
+        console.log(`\n\nInterval wait completed! Starting next batch...\n`);
       }
 
     } catch (err) {
       console.error(`\n[Main Batch Error] Batch ${batchIndex} encountered an error: ${err.message}`);
-      await engine.close();
-
-      const choice = readlineSync.question('\n[RECOVERY] An error occurred. Press [r] to retry batch, or [ENTER] to continue to next batch: ');
-      if (choice.toLowerCase() === 'r') {
-        pendingVehicles.unshift(...currentBatch); // put batch back in queue
-      }
+      if (engine) await engine.close().catch(() => {});
+      break;
     }
   }
 
   console.log(`\n===============================================================`);
-  console.log(` [PIPELINE FINISHED] All ${allVehicles.length} vehicles successfully processed!`);
-  console.log(` Results saved to: ${config.OUTPUT_CSV_FILE}`);
-  console.log(` Synced to Google Sheet ID: ${config.GOOGLE_SHEET_ID}`);
+  console.log(` [PIPELINE STATUS] Batch execution finished.`);
+  console.log(` Live Google Sheet: ${config.GOOGLE_SHEET_URL}`);
   console.log(`===============================================================\n`);
 }
 
 if (require.main === module) {
   runPipeline().catch(err => console.error(`[Fatal Pipeline Error]`, err));
 }
+
+module.exports = { runPipeline };

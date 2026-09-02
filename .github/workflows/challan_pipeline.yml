@@ -9,7 +9,7 @@ on:
 jobs:
   scrape-challans:
     runs-on: ubuntu-latest
-    timeout-minutes: 180 # Allow sufficient time for scraping batches
+    timeout-minutes: 60
 
     steps:
       - name: Checkout Repository
@@ -26,10 +26,11 @@ jobs:
       - name: Install Playwright Browsers & Dependencies
         run: npx playwright install chromium --with-deps
 
-      - name: Run Challan Scraping Pipeline
+      - name: Run Challan Scraping Pipeline (1 Batch - 50 Vehicles)
         run: node main.js
         env:
           HEADLESS: "true"
+          MAX_BATCHES: "1"
 
       - name: Commit & Push Updated Checkpoints & Results
         run: |
