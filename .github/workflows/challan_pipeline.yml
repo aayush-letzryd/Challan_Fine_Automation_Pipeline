@@ -23,11 +23,11 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      - name: Install Playwright Browsers & Dependencies
+      - name: Install Playwright Browsers & OS Dependencies
         run: npx playwright install chromium --with-deps
 
       - name: Run Challan Scraping Pipeline (1 Batch - 50 Vehicles)
-        run: node main.js
+        run: xvfb-run --auto-servernum -- node main.js
         env:
           HEADLESS: "true"
           MAX_BATCHES: "1"

@@ -69,22 +69,34 @@ class ChallanBrowserEngine {
   }
 
   /**
-   * Initializes browser instance.
+   * Initializes browser instance with 100% Linux/Cloud compatible headless options.
    */
   async initBrowser() {
-    console.log(`[BrowserEngine] Launching Playwright Chromium Browser...`);
+    const isHeadless = process.env.HEADLESS !== 'false';
+    console.log(`[BrowserEngine] Launching Playwright Chromium Browser (Headless: ${isHeadless})...`);
+
+    const launchArgs = [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--disable-blink-features=AutomationControlled',
+      '--no-first-run',
+      '--no-default-browser-check'
+    ];
+
     this.browser = await chromium.launch({
-      headless: config.HEADLESS,
-      args: ['--start-maximized', '--disable-blink-features=AutomationControlled']
+      headless: isHeadless,
+      args: launchArgs
     });
 
     this.context = await this.browser.newContext({
-      viewport: null,
+      viewport: { width: 1920, height: 1080 },
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     });
 
     this.page = await this.context.newPage();
-    console.log(`[BrowserEngine] Browser successfully launched.`);
+    console.log(`[BrowserEngine] Browser successfully launched and ready.`);
   }
 
   /**
@@ -146,8 +158,8 @@ class ChallanBrowserEngine {
       } catch (otpErr) {
         console.warn(`[BrowserEngine Warning] Attempt ${attempt} sheet polling timed out (${otpErr.message}).`);
         
-        // If this is the last attempt (attempt 5), try fallback prompt
-        if (attempt === 5) {
+        // If this is the last attempt (attempt 5) and on Windows, try fallback prompt
+        if (attempt === 5 && process.platform === 'win32') {
           console.warn(`[BrowserEngine] All automated attempts exhausted. Opening pop-up fallback...`);
           otpCode = promptGuiOtp(mobileNo);
         }
@@ -217,25 +229,25 @@ class ChallanBrowserEngine {
         oldTables.forEach(t => t.remove());
       }).catch(() => {});
 
-      // Ensure 'Registration No' radio button is selected
+      // 2. Ensure 'Registration No' radio button is explicitly selected
       const regNoRadio = this.page.locator('input[type="radio"][value*="Registration"], #RegistrationNo, input[id*="Registration"], input[value*="Registration"]').first();
       if (await regNoRadio.isVisible().catch(() => false)) {
         const isChecked = await regNoRadio.isChecked().catch(() => false);
         if (!isChecked) {
           console.log(`[BrowserEngine] Selecting 'Registration No' radio button...`);
           await regNoRadio.click({ force: true }).catch(() => {});
-          await delay(800);
+          await delay(600);
         }
       }
 
-      // Locate Search Input box
+      // 3. Locate Search Input box and fill vehicle number
       const searchInput = this.page.locator('#txtSearchNumber, input[id*="Search"], input[name*="Search"], input[placeholder*="Search"]:not([type="hidden"])').first();
       await searchInput.fill('');
-      await delay(300);
+      await delay(200);
       await searchInput.fill(regNo);
-      await delay(500);
+      await delay(400);
 
-      // Click Search button
+      // 4. Click Search button
       console.log(`[BrowserEngine] Clicking 'Search' button for ${regNo}...`);
       const searchBtn = this.page.locator('#btnSearch, button:has-text("Search"), input[value="Search"]').first();
       await searchBtn.click({ force: true });
@@ -243,11 +255,10 @@ class ChallanBrowserEngine {
       // Wait for search result response
       await delay(3500);
 
-      // Extract RC Holder Name BEFORE checking table or messages
+      // 5. Extract RC Holder Name directly from portal header
       let rcHolderName = 'N/A';
       try {
         rcHolderName = await this.page.evaluate(() => {
-          // 1. Precise line extraction from body text
           const bodyText = document.body.innerText || '';
           const lines = bodyText.split('\n').map(l => l.trim()).filter(Boolean);
 
@@ -264,7 +275,6 @@ class ChallanBrowserEngine {
             }
           }
 
-          // 2. Direct ID / attribute search
           const directIds = ['#lblRCHolderName', '#lblRcHolderName', '#RCHolderName', '#txtRCHolderName', '#lblOwnerName'];
           for (const id of directIds) {
             const el = document.querySelector(id);
@@ -274,7 +284,6 @@ class ChallanBrowserEngine {
             }
           }
 
-          // 3. Regex fallback
           const match = bodyText.match(/RC Holder Name\s*[:\-]?\s*([^\n\r]+)/i);
           if (match && match[1]) {
             const val = match[1].trim();
