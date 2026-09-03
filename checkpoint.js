@@ -12,7 +12,6 @@ function loadCheckpoint() {
     try {
       const raw = fs.readFileSync(CHECKPOINT_PATH, 'utf-8');
       const data = JSON.parse(raw);
-      console.log(`[Checkpoint] Loaded checkpoint: ${Object.keys(data.processed || {}).length} vehicles already processed.`);
       return data;
     } catch (err) {
       console.warn(`[Checkpoint] Failed to parse checkpoint JSON, starting fresh. Error: ${err.message}`);
@@ -20,7 +19,7 @@ function loadCheckpoint() {
   }
 
   return {
-    processed: {},     // Key: cleanRegNo -> { timestamp, status, rcHolderName, totalAmount, fineCount }
+    processed: {},
     lastProcessed: null,
     totalCount: 0,
     startTime: new Date().toISOString(),
@@ -39,26 +38,48 @@ function saveCheckpoint(checkpointData) {
 /**
  * Checks if a vehicle has been processed.
  */
-function isProcessed(checkpointData, regNo) {
-  return Boolean(checkpointData.processed && checkpointData.processed[regNo]);
+function isProcessed(regNo, customCheckpoint = null) {
+  const checkpoint = customCheckpoint || (typeof regNo === 'object' ? regNo : loadCheckpoint());
+  const cleanKey = typeof regNo === 'string' ? regNo : (regNo.clean || '');
+  return Boolean(checkpoint.processed && checkpoint.processed[cleanKey]);
 }
 
 /**
  * Marks a vehicle as completed with its status.
  */
-function markProcessed(checkpointData, regNo, details) {
-  if (!checkpointData.processed) checkpointData.processed = {};
-  checkpointData.processed[regNo] = {
+function markProcessed(regNo, details = {}) {
+  const checkpoint = loadCheckpoint();
+  if (!checkpoint.processed) checkpoint.processed = {};
+  
+  checkpoint.processed[regNo] = {
     timestamp: new Date().toISOString(),
     ...details
   };
-  checkpointData.lastProcessed = regNo;
-  saveCheckpoint(checkpointData);
+  checkpoint.lastProcessed = regNo;
+  saveCheckpoint(checkpoint);
+}
+
+/**
+ * Filters master list to return only pending un-scraped vehicles.
+ */
+function getPendingVehicles(allVehicles) {
+  const checkpoint = loadCheckpoint();
+  return allVehicles.filter(v => !checkpoint.processed || !checkpoint.processed[v.clean]);
+}
+
+/**
+ * Returns total count of processed vehicles.
+ */
+function getProcessedCount() {
+  const checkpoint = loadCheckpoint();
+  return Object.keys(checkpoint.processed || {}).length;
 }
 
 module.exports = {
   loadCheckpoint,
   saveCheckpoint,
   isProcessed,
-  markProcessed
+  markProcessed,
+  getPendingVehicles,
+  getProcessedCount
 };
