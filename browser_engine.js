@@ -30,19 +30,6 @@ function getFormattedTimestampIST(date = new Date()) {
 }
 
 /**
- * Pops up a native Windows GUI input box asking for the OTP code (only as emergency fallback).
- */
-function promptGuiOtp(mobileNo) {
-  try {
-    const psScript = `Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.Interaction]::InputBox('Enter the 4-digit/6-digit OTP received on mobile number ${mobileNo}:', 'Karnataka One OTP Authentication', '')`;
-    const otp = execSync(`powershell -Command "${psScript}"`, { encoding: 'utf-8' }).trim();
-    return otp;
-  } catch (e) {
-    return '';
-  }
-}
-
-/**
  * Dismisses modal popups (e.g. #k1HelpDeskPopup) if present.
  */
 async function dismissPopup(page) {
@@ -69,7 +56,7 @@ class ChallanBrowserEngine {
   }
 
   /**
-   * Initializes browser instance with 100% Linux/Cloud compatible headless options.
+   * Initializes browser instance.
    */
   async initBrowser() {
     const isHeadless = process.env.HEADLESS !== 'false';
@@ -115,7 +102,7 @@ class ChallanBrowserEngine {
 
     // Check if already on logged-in search page
     if (this.page.url().includes('PoliceCollectionOfFineLogin')) {
-      const existingSearchBox = await this.page.$('#txtSearchNumber, input[id*="Search"], input[name*="Search"]');
+      const existingSearchBox = await this.page.$('#txtSearchNumber, input[id*="Search"], input[name*="Search"], input#SearchValue');
       if (existingSearchBox) {
         console.log(`[BrowserEngine] Already logged in! Reached Search Dashboard.`);
         return true;
@@ -150,19 +137,13 @@ class ChallanBrowserEngine {
 
       await delay(2000);
 
-      // AUTOMATED OTP RETRIEVAL FROM LIVE GOOGLE SHEET (SMS Forwarder Sheet)
+      // AUTOMATED OTP RETRIEVAL FROM LIVE GOOGLE SHEET
       console.log(`[BrowserEngine] Polling live Google Sheet for NEW incoming OTP SMS (Sheet ID: ${config.OTP_SHEET_ID})...`);
       let otpCode = '';
       try {
         otpCode = await fetchFreshOTP(initialSnapshot, 60);
       } catch (otpErr) {
         console.warn(`[BrowserEngine Warning] Attempt ${attempt} sheet polling timed out (${otpErr.message}).`);
-        
-        // If this is the last attempt (attempt 5) and on Windows, try fallback prompt
-        if (attempt === 5 && process.platform === 'win32') {
-          console.warn(`[BrowserEngine] All automated attempts exhausted. Opening pop-up fallback...`);
-          otpCode = promptGuiOtp(mobileNo);
-        }
       }
 
       if (!otpCode) {
@@ -187,7 +168,7 @@ class ChallanBrowserEngine {
       await dismissPopup(this.page);
 
       // Check if search input or radio button appears on screen
-      const searchBox = await this.page.$('#txtSearchNumber, input[id*="Search"], input[name*="Search"], input[placeholder*="Search"]:not([type="hidden"])');
+      const searchBox = await this.page.$('#txtSearchNumber, input#SearchValue, input[id*="Search"], input[name*="Search"]');
       const isSearchDashboardReady = Boolean(searchBox);
 
       if (isSearchDashboardReady) {
@@ -212,7 +193,7 @@ class ChallanBrowserEngine {
   }
 
   /**
-   * Scrapes Challans for a single vehicle registration number with precision RC Holder Name extraction.
+   * Scrapes Challans for a single vehicle registration number with strict input#Name extraction.
    */
   async scrapeVehicleChallan(vehicleObj) {
     const regNo = vehicleObj.clean;
@@ -223,7 +204,7 @@ class ChallanBrowserEngine {
     try {
       await dismissPopup(this.page);
 
-      // 1. Clear any old/lingering table elements from previous search to avoid stale reads
+      // 1. Clear any old/lingering table elements from previous search
       await this.page.evaluate(() => {
         const oldTables = document.querySelectorAll('table');
         oldTables.forEach(t => t.remove());
@@ -241,7 +222,7 @@ class ChallanBrowserEngine {
       }
 
       // 3. Locate Search Input box and fill vehicle number
-      const searchInput = this.page.locator('#txtSearchNumber, input[id*="Search"], input[name*="Search"], input[placeholder*="Search"]:not([type="hidden"])').first();
+      const searchInput = this.page.locator('#SearchValue, #txtSearchNumber, input[id*="Search"], input[name*="Search"]').first();
       await searchInput.fill('');
       await delay(200);
       await searchInput.fill(regNo);
@@ -252,46 +233,21 @@ class ChallanBrowserEngine {
       const searchBtn = this.page.locator('#btnSearch, button:has-text("Search"), input[value="Search"]').first();
       await searchBtn.click({ force: true });
 
-      // Wait for search result response
+      // Wait for AJAX response
       await delay(3500);
 
-      // 5. Extract RC Holder Name directly from portal header
+      // 5. EXACT RC Holder Name Extractor (reads input#Name value)
       let rcHolderName = 'N/A';
       try {
         rcHolderName = await this.page.evaluate(() => {
-          const bodyText = document.body.innerText || '';
-          const lines = bodyText.split('\n').map(l => l.trim()).filter(Boolean);
-
-          for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].toUpperCase();
-            if (line === 'RC HOLDER NAME' || line.startsWith('RC HOLDER NAME:')) {
-              if (lines[i + 1]) {
-                const nextLine = lines[i + 1].trim();
-                const nextUpper = nextLine.toUpperCase();
-                if (nextLine && !nextUpper.includes('AMOUNT TO BE PAID') && !nextUpper.includes('PLEASE ENTER') && !nextUpper.includes('VIEW DIGITAB')) {
-                  return nextLine;
-                }
-              }
-            }
-          }
-
-          const directIds = ['#lblRCHolderName', '#lblRcHolderName', '#RCHolderName', '#txtRCHolderName', '#lblOwnerName'];
-          for (const id of directIds) {
-            const el = document.querySelector(id);
-            if (el) {
-              const val = (el.value || el.innerText || '').trim();
-              if (val && !val.toLowerCase().includes('please enter')) return val;
-            }
-          }
-
-          const match = bodyText.match(/RC Holder Name\s*[:\-]?\s*([^\n\r]+)/i);
-          if (match && match[1]) {
-            const val = match[1].trim();
-            if (val && !val.toLowerCase().includes('please enter') && !val.toLowerCase().includes('amount to be paid')) {
+          const nameInput = document.querySelector('input#Name, input[name="Name"], #Name');
+          if (nameInput && nameInput.value) {
+            const val = nameInput.value.trim();
+            // Discard phone numbers or validation prompts
+            if (val && !/^\d+$/.test(val) && !val.toLowerCase().includes('please enter') && val.length > 2) {
               return val;
             }
           }
-
           return 'N/A';
         });
       } catch (e) {
@@ -342,7 +298,7 @@ class ChallanBrowserEngine {
           const rowRegNoRaw = cellTexts[2] || '';
           const rowRegNoClean = rowRegNoRaw.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-          // STRICT STALE ROW VERIFICATION: Discard rows if table belongs to another vehicle
+          // STRICT STALE ROW VERIFICATION
           if (rowRegNoClean && rowRegNoClean !== regNo) {
             console.warn(`[BrowserEngine Warning] Stale table row detected (${rowRegNoClean} != ${regNo}). Ignoring stale row.`);
             continue;

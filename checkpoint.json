@@ -1,3 +1,406 @@
 {
-  "processed": {}
+  "processed": {
+    "KA05AP6038": {
+      "timestamp": "2026-09-02T07:43:28.732Z",
+      "status": "HAS_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 1000,
+      "fineCount": 1,
+      "originalName": "KA05AP6038"
+    },
+    "KA05AP6041": {
+      "timestamp": "2026-09-02T07:43:34.142Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP6041"
+    },
+    "KA05AP6034": {
+      "timestamp": "2026-09-02T07:43:39.856Z",
+      "status": "HAS_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 3000,
+      "fineCount": 6,
+      "originalName": "KA05AP6034"
+    },
+    "KA05AP7689": {
+      "timestamp": "2026-09-02T07:43:45.275Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7689"
+    },
+    "KA05AP7685": {
+      "timestamp": "2026-09-02T07:43:50.671Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7685"
+    },
+    "KA05AP7682": {
+      "timestamp": "2026-09-02T07:43:56.148Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7682"
+    },
+    "KA05AP7679": {
+      "timestamp": "2026-09-02T07:44:01.631Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7679"
+    },
+    "KA05AP7676": {
+      "timestamp": "2026-09-02T07:44:07.071Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7676"
+    },
+    "KA05AP7673": {
+      "timestamp": "2026-09-02T07:44:12.619Z",
+      "status": "HAS_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 1000,
+      "fineCount": 1,
+      "originalName": "KA05AP7673"
+    },
+    "KA05AP7670": {
+      "timestamp": "2026-09-02T07:44:18.040Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7670"
+    },
+    "KA05AP7667": {
+      "timestamp": "2026-09-02T07:44:23.457Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7667"
+    },
+    "KA05AP7663": {
+      "timestamp": "2026-09-02T07:44:28.868Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7663"
+    },
+    "KA05AP7660": {
+      "timestamp": "2026-09-02T07:44:34.269Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7660"
+    },
+    "KA05AP7657": {
+      "timestamp": "2026-09-02T07:44:39.676Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7657"
+    },
+    "KA05AP7654": {
+      "timestamp": "2026-09-02T07:44:45.152Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7654"
+    },
+    "KA05AP7651": {
+      "timestamp": "2026-09-02T07:44:50.575Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7651"
+    },
+    "KA05AP7648": {
+      "timestamp": "2026-09-02T07:44:56.011Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7648"
+    },
+    "KA05AP7645": {
+      "timestamp": "2026-09-02T07:45:01.490Z",
+      "status": "HAS_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 500,
+      "fineCount": 1,
+      "originalName": "KA05AP7645"
+    },
+    "KA05AP7642": {
+      "timestamp": "2026-09-02T07:45:06.912Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7642"
+    },
+    "KA05AP7639": {
+      "timestamp": "2026-09-02T07:45:12.309Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7639"
+    },
+    "KA05AP7499": {
+      "timestamp": "2026-09-02T07:45:17.721Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7499"
+    },
+    "KA05AP7490": {
+      "timestamp": "2026-09-02T07:45:23.108Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7490"
+    },
+    "KA05AP7504": {
+      "timestamp": "2026-09-02T07:45:28.645Z",
+      "status": "HAS_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 4000,
+      "fineCount": 3,
+      "originalName": "KA05AP7504"
+    },
+    "KA05AP7514": {
+      "timestamp": "2026-09-02T07:45:34.053Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7514"
+    },
+    "KA05AP7510": {
+      "timestamp": "2026-09-02T07:45:39.468Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7510"
+    },
+    "KA05AP7505": {
+      "timestamp": "2026-09-02T07:45:44.868Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7505"
+    },
+    "KA05AP7500": {
+      "timestamp": "2026-09-02T07:45:50.427Z",
+      "status": "HAS_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 1500,
+      "fineCount": 2,
+      "originalName": "KA05AP7500"
+    },
+    "KA05AP7501": {
+      "timestamp": "2026-09-02T07:45:55.933Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7501"
+    },
+    "KA05AP7512": {
+      "timestamp": "2026-09-02T07:46:01.350Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7512"
+    },
+    "KA05AP7521": {
+      "timestamp": "2026-09-02T07:46:06.935Z",
+      "status": "HAS_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 500,
+      "fineCount": 1,
+      "originalName": "KA05AP7521"
+    },
+    "KA05AP7533": {
+      "timestamp": "2026-09-02T07:46:12.411Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AP7533"
+    },
+    "KA05AQ0163": {
+      "timestamp": "2026-09-02T07:46:17.828Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AQ0163"
+    },
+    "KA05AQ0159": {
+      "timestamp": "2026-09-02T07:46:23.296Z",
+      "status": "HAS_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 500,
+      "fineCount": 1,
+      "originalName": "KA05AQ0159"
+    },
+    "KA05AQ2252": {
+      "timestamp": "2026-09-02T07:46:28.699Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AQ2252"
+    },
+    "KA05AQ2246": {
+      "timestamp": "2026-09-02T07:46:34.115Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AQ2246"
+    },
+    "KA05AQ2248": {
+      "timestamp": "2026-09-02T07:46:39.593Z",
+      "status": "HAS_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 500,
+      "fineCount": 1,
+      "originalName": "KA05AQ2248"
+    },
+    "KA05AQ2254": {
+      "timestamp": "2026-09-02T07:46:45.044Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AQ2254"
+    },
+    "KA05AQ2145": {
+      "timestamp": "2026-09-02T07:46:50.527Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AQ2145"
+    },
+    "KA05AQ2137": {
+      "timestamp": "2026-09-02T07:46:56.080Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AQ2137"
+    },
+    "KA05AQ2138": {
+      "timestamp": "2026-09-02T07:47:01.527Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA05AQ2138"
+    },
+    "KA05AQ2141": {
+      "timestamp": "2026-09-02T07:47:07.181Z",
+      "status": "HAS_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 1500,
+      "fineCount": 3,
+      "originalName": "KA05AQ2141"
+    },
+    "KA51AL0773": {
+      "timestamp": "2026-09-02T07:47:12.638Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA51AL0773"
+    },
+    "KA51AL0777": {
+      "timestamp": "2026-09-02T07:47:18.195Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA51AL0777"
+    },
+    "KA51AL0740": {
+      "timestamp": "2026-09-02T07:47:23.624Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA51AL0740"
+    },
+    "KA51AL0741": {
+      "timestamp": "2026-09-02T07:47:29.045Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA51AL0741"
+    },
+    "KA51AL0781": {
+      "timestamp": "2026-09-02T07:47:34.559Z",
+      "status": "HAS_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 1000,
+      "fineCount": 1,
+      "originalName": "KA51AL0781"
+    },
+    "KA51AL0743": {
+      "timestamp": "2026-09-02T07:47:39.987Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA51AL0743"
+    },
+    "KA51AL0783": {
+      "timestamp": "2026-09-02T07:47:45.402Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA51AL0783"
+    },
+    "KA51AL0746": {
+      "timestamp": "2026-09-02T07:47:50.904Z",
+      "status": "HAS_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 500,
+      "fineCount": 1,
+      "originalName": "KA51AL0746"
+    },
+    "KA51AL0784": {
+      "timestamp": "2026-09-02T07:47:56.337Z",
+      "status": "NO_FINES",
+      "rcHolderName": "N/A",
+      "totalAmount": 0,
+      "fineCount": 0,
+      "originalName": "KA51AL0784"
+    }
+  },
+  "lastProcessed": "KA51AL0784",
+  "updatedAt": "2026-09-02T07:47:56.337Z"
 }

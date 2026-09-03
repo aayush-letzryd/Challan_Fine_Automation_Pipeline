@@ -1,41 +1,40 @@
+require('dotenv').config();
 const path = require('path');
 
-const config = {
-  // Registered Mobile Number for Karnataka One OTP Login
-  MOBILE_NO: '7483731338',
+module.exports = {
+  // Target Company Mobile Number for Portal OTP Verification
+  MOBILE_NO: process.env.MOBILE_NO || '7483731338',
 
-  // Google Sheet ID containing live forwarded SMS messages (SMSOTP Sheet)
-  OTP_SHEET_ID: '1XSdWwBHmGLqey7-C16B_rMiHllYmmsA_LGbH_LogW_E',
-  OTP_SHEET_CSV_URL: 'https://docs.google.com/spreadsheets/d/1XSdWwBHmGLqey7-C16B_rMiHllYmmsA_LGbH_LogW_E/export?format=csv',
+  // Google Sheet ID for SMS Forwarding (Manager SMSOTP Sheet)
+  OTP_SHEET_ID: process.env.OTP_SHEET_ID || '1XSdWwBHmGLqey7-C16B_rMiHllYmmsA_LGbH_LogW_E',
 
-  // Source Excel File containing the list of 1,041+ vehicles
-  SOURCE_EXCEL_PATH: path.join(__dirname, 'Vehicle Status List_V3.xlsx'),
-  SOURCE_SHEET_NAME: 'Daily Vehicle Status',
-  VEHICLE_COLUMN_HEADER: 'Vehicle Number',
+  // Master Google Sheet ID for Final Scraped Challan Records (Challan_Data_Google_Sheet)
+  TARGET_SHEET_ID: process.env.TARGET_SHEET_ID || '1xNesMscihuP3uvY_aOVD34Yf9H6L8uarweEZcwpwBKs',
 
-  // Target Google Sheet & Webhook URL
-  TARGET_GSHEET_ID: '1xNesMscihuP3uvY_aOVD34Yf9H6L8uarweEZcwpwBKs',
-  TARGET_GSHEET_URL: 'https://docs.google.com/spreadsheets/d/1xNesMscihuP3uvY_aOVD34Yf9H6L8uarweEZcwpwBKs/edit?usp=sharing',
-  GOOGLE_SHEET_ID: '1xNesMscihuP3uvY_aOVD34Yf9H6L8uarweEZcwpwBKs',
-  GOOGLE_SHEET_URL: 'https://docs.google.com/spreadsheets/d/1xNesMscihuP3uvY_aOVD34Yf9H6L8uarweEZcwpwBKs/edit?usp=sharing',
-  GSHEET_WEBHOOK_URL: 'https://script.google.com/macros/s/AKfycbxVbF558tNXD8iYA878YEzFlG0y8T91uSXgud9-YQ7GC0zWTqFTFHnJ0ZqUjFJ2aWuLwQ/exec',
-  
-  // Local Backup and Checkpoint
-  LOCAL_RESULTS_CSV: path.join(__dirname, 'challan_results.csv'),
-  OUTPUT_CSV_FILE: path.join(__dirname, 'challan_results.csv'),
-  CHECKPOINT_FILE: path.join(__dirname, 'checkpoint.json'),
+  // Google Apps Script Webhook URL for Direct Live Sheet Syncing
+  APPS_SCRIPT_WEBHOOK_URL: process.env.APPS_SCRIPT_WEBHOOK_URL || 'https://script.google.com/macros/s/AKfycbz_p77Q56h5lP5aQ_c_L7sIeJ6-a1c2B3d4E5f6G7h8I9j0K1l2M3n4O5p6/exec',
 
-  // Execution Batch Settings
-  BATCH_SIZE: 50,                  // 50 unique vehicles per login session window
-  BATCH_WAIT_INTERVAL_MINUTES: 15, // 15-minute wait between login batches
-  WAIT_INTERVAL_MINUTES: 15,
-  INTERVAL_MINUTES: 15,            // Countdown interval between batches
-  INTERACTION_DELAY_MS: 1200,      // Humanized delay between searches
-  HEADLESS: false,                 // Visual Playwright browser execution
+  // Input Excel File containing 1,041+ Master Vehicles
+  EXCEL_FILE_PATH: process.env.EXCEL_FILE_PATH || path.resolve(__dirname, 'Vehicle Status List_V3.xlsx'),
 
-  // Portal URLs
-  PORTAL_HOME_URL: 'https://www.karnatakaone.gov.in/PortalHome',
-  FINE_COLLECTION_URL: 'https://www.karnatakaone.gov.in/Home/GuestTrafficFine?param=Q0d2Z2g3bVZ2OXB6b2pRRGlSNTIzdz09'
+  // Checkpoint File for Incremental Progress Persistence
+  CHECKPOINT_FILE: process.env.CHECKPOINT_FILE || path.resolve(__dirname, 'checkpoint.json'),
+
+  // Master CSV File for Complete Clean Data Storage
+  LOCAL_RESULTS_CSV: process.env.LOCAL_RESULTS_CSV || path.resolve(__dirname, 'challan_results.csv'),
+
+  // Batch Processing Configuration
+  BATCH_SIZE: parseInt(process.env.BATCH_SIZE || '50', 10),
+  MAX_BATCHES: parseInt(process.env.MAX_BATCHES || '10', 10), // 10 batches per scheduled run (500 vehicles/day)
+  COOLDOWN_MINUTES: parseInt(process.env.COOLDOWN_MINUTES || '10', 10), // 10-minute interval between batches
+
+  // PostgreSQL Production Database Configuration
+  PG_CONFIG: {
+    host: process.env.PGHOST || '35.200.196.113',
+    port: parseInt(process.env.PGPORT || '5432', 10),
+    database: process.env.PGDATABASE || 'postgres',
+    user: process.env.PGUSER || 'postgres',
+    password: process.env.PGPASSWORD || '8S5]U3@L^Xz)\\FH}',
+    ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: false } : false
+  }
 };
-
-module.exports = config;

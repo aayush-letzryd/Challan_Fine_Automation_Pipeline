@@ -9,7 +9,7 @@ function isKarnatakaOneMessage(message, from) {
   const text = `${message || ''} ${from || ''}`.toUpperCase();
 
   // Explicitly reject non-Karnataka One senders
-  if (text.includes('IDFC') || text.includes('DEBIT') || text.includes('CREDIT') || text.includes('ACTGRP') || text.includes('FIBERNET') || text.includes('SWIGGY') || text.includes('ZOMATO')) {
+  if (text.includes('IDFC') || text.includes('DEBIT') || text.includes('CREDIT') || text.includes('ACTGRP') || text.includes('FIBERNET') || text.includes('SWIGGY') || text.includes('ZOMATO') || text.includes('UBER')) {
     return false;
   }
 
@@ -101,9 +101,9 @@ async function getExistingSnapshot() {
 }
 
 /**
- * Polls live Google Sheet specifically for a NEW incoming Karnataka One OTP SMS that wasn't in initialSnapshot.
+ * Polls live Google Sheet specifically for an incoming Karnataka One OTP SMS.
  */
-async function fetchFreshOTP(initialSnapshot = new Set(), maxWaitSeconds = 90) {
+async function fetchFreshOTP(initialSnapshot = new Set(), maxWaitSeconds = 60) {
   console.log(`[OTPFetcher] Polling live SMSOTP Sheet (${config.OTP_SHEET_ID}) for fresh KARNATAKA ONE OTP...`);
   const startTime = Date.now();
   let attempts = 0;
@@ -118,7 +118,7 @@ async function fetchFreshOTP(initialSnapshot = new Set(), maxWaitSeconds = 90) {
         const csvContent = await response.text();
         const rows = parseCsvRows(csvContent);
 
-        // ONLY accept rows that arrived AFTER initialSnapshot
+        // 1. Check for newly arrived rows that weren't in snapshot
         for (const row of rows) {
           if (!initialSnapshot.has(row.raw)) {
             if (isKarnatakaOneMessage(row.message, row.from)) {
@@ -130,8 +130,18 @@ async function fetchFreshOTP(initialSnapshot = new Set(), maxWaitSeconds = 90) {
                 console.log(`======================================================\n`);
                 return otpCode;
               }
-            } else {
-              console.log(`[OTPFetcher] Attempt ${attempts}: Detected new non-Karnataka One SMS: "${row.message.substring(0, 50)}..." (From: ${row.from}). Waiting for KARONE OTP...`);
+            }
+          }
+        }
+
+        // 2. If 15+ seconds elapsed, check if the top row is a valid Karnataka One OTP
+        if ((Date.now() - startTime) > 15000 && rows.length > 0) {
+          const topRow = rows[0];
+          if (isKarnatakaOneMessage(topRow.message, topRow.from)) {
+            const otpCode = extractOtpFromMessage(topRow.message);
+            if (otpCode) {
+              console.log(`[OTPFetcher] Fallback to latest top KARNATAKA ONE SMS: "${topRow.message.substring(0, 60)}..."`);
+              return otpCode;
             }
           }
         }

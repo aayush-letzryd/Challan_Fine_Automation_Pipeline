@@ -1,43 +1,39 @@
+const { Client } = require('pg');
 const fs = require('fs');
 const path = require('path');
-const { Client } = require('pg');
-const config = require('./config');
 
-const CSV_PATH = config.LOCAL_RESULTS_CSV || path.resolve(__dirname, 'challan_results.csv');
-
-const DEFAULT_DB_CONFIG = {
-  host: process.env.PGHOST || '35.200.196.113',
-  port: parseInt(process.env.PGPORT || '5432', 10),
-  database: process.env.PGDATABASE || 'postgres',
-  user: process.env.PGUSER || 'postgres',
-  password: process.env.PGPASSWORD || '8S5]U3@L^Xz)\\FH}',
+const DB_CONFIG = {
+  host: '35.200.196.113',
+  port: 5432,
+  database: 'postgres',
+  user: 'postgres',
+  password: '8S5]U3@L^Xz)\\FH}',
   ssl: false,
   connectionTimeoutMillis: 15000
 };
 
-/**
- * Syncs all records from challan_results.csv to PostgreSQL table `vehicle_challans`.
- */
-async function syncToPostgres(customClientConfig = null) {
-  console.log(`\n======================================================`);
-  console.log(`[PostgresSync] Syncing data to PostgreSQL Database...`);
-  console.log(`======================================================\n`);
-
-  if (!fs.existsSync(CSV_PATH)) {
-    console.log(`[PostgresSync] No CSV file found at: ${CSV_PATH}`);
-    return false;
-  }
-
-  const clientConfig = customClientConfig || DEFAULT_DB_CONFIG;
-  const client = new Client(clientConfig);
+async function inspectAndSync() {
+  const client = new Client(DB_CONFIG);
 
   try {
     await client.connect();
-    console.log(`[PostgresSync] Connected to PostgreSQL: ${clientConfig.database} on ${clientConfig.host}`);
+    console.log('✅ Connected to PostgreSQL server.');
 
-    // Ensure clean unified table exists
+    // 1. Check existing columns of vehicle_challans
+    const colRes = await client.query(`
+      SELECT column_name, data_type 
+      FROM information_schema.columns 
+      WHERE table_name = 'vehicle_challans'
+      ORDER BY ordinal_position;
+    `);
+    console.log('Existing columns in vehicle_challans:', colRes.rows.map(r => r.column_name));
+
+    // 2. Drop the old table and recreate with clean 12-column schema
+    console.log('\nDropping old table and creating clean unified vehicle_challans table...');
+    await client.query(`DROP TABLE IF EXISTS vehicle_challans CASCADE;`);
+
     await client.query(`
-      CREATE TABLE IF NOT EXISTS vehicle_challans (
+      CREATE TABLE vehicle_challans (
         id BIGSERIAL PRIMARY KEY,
         vehicle_reg_no VARCHAR(20) NOT NULL,
         rc_holder_name VARCHAR(255) DEFAULT 'N/A',
@@ -56,20 +52,18 @@ async function syncToPostgres(customClientConfig = null) {
         CONSTRAINT uq_vehicle_challan_record UNIQUE (vehicle_reg_no, notice_no, offence_description)
       );
 
-      CREATE INDEX IF NOT EXISTS idx_challans_vehicle_reg_no ON vehicle_challans(vehicle_reg_no);
-      CREATE INDEX IF NOT EXISTS idx_challans_notice_no ON vehicle_challans(notice_no);
-      CREATE INDEX IF NOT EXISTS idx_challans_status ON vehicle_challans(status);
-      CREATE INDEX IF NOT EXISTS idx_challans_created_at ON vehicle_challans(created_at DESC);
+      CREATE INDEX idx_challans_vehicle_reg_no ON vehicle_challans(vehicle_reg_no);
+      CREATE INDEX idx_challans_notice_no ON vehicle_challans(notice_no);
+      CREATE INDEX idx_challans_status ON vehicle_challans(status);
+      CREATE INDEX idx_challans_created_at ON vehicle_challans(created_at DESC);
     `);
+    console.log('✅ Created fresh vehicle_challans table with single vehicle_reg_no column & indexes.');
 
-    // Parse CSV rows
-    const content = fs.readFileSync(CSV_PATH, 'utf-8');
-    const lines = content.trim().split('\n').filter(Boolean);
-    if (lines.length <= 1) {
-      console.log(`[PostgresSync] No data rows to insert.`);
-      await client.end();
-      return true;
-    }
+    // 3. Load all scraped records from CSV
+    const csvPath = path.resolve(__dirname, 'challan_results.csv');
+    const csvContent = fs.readFileSync(csvPath, 'utf-8');
+    const lines = csvContent.trim().split('\n').filter(Boolean);
+    console.log(`\nFound ${lines.length - 1} records in challan_results.csv to insert.`);
 
     const rows = [];
     for (let i = 1; i < lines.length; i++) {
@@ -93,9 +87,9 @@ async function syncToPostgres(customClientConfig = null) {
       rows.push(cells);
     }
 
-    console.log(`[PostgresSync] Inserting/Upserting ${rows.length} record(s) into 'vehicle_challans'...`);
-
-    const upsertQuery = `
+    // 4. Batch Insert
+    console.log(`Inserting ${rows.length} records into vehicle_challans...`);
+    const insertQuery = `
       INSERT INTO vehicle_challans (
         vehicle_reg_no,
         rc_holder_name,
@@ -135,7 +129,7 @@ async function syncToPostgres(customClientConfig = null) {
       const scrapedTimestamp = r[10] || 'N/A';
       const status = r[11] || 'PROCESSED';
 
-      await client.query(upsertQuery, [
+      await client.query(insertQuery, [
         vehicleRegNo,
         rcHolderName,
         totalAmountPending,
@@ -151,21 +145,25 @@ async function syncToPostgres(customClientConfig = null) {
       ]);
     }
 
-    console.log(`[PostgresSync] SUCCESS! All ${rows.length} records successfully synced to PostgreSQL!`);
-    await client.end();
-    return true;
+    console.log(`✅ Successfully inserted all ${rows.length} records into PostgreSQL!`);
 
+    // 5. Verification queries
+    const countRes = await client.query('SELECT COUNT(*) as total_rows, COUNT(DISTINCT vehicle_reg_no) as unique_vehicles FROM vehicle_challans;');
+    console.log('\n======================================================');
+    console.log('POSTGRESQL TABLE "vehicle_challans" VERIFICATION:');
+    console.log(`Total Rows in Table: ${countRes.rows[0].total_rows}`);
+    console.log(`Unique Vehicles in Table: ${countRes.rows[0].unique_vehicles}`);
+    console.log('======================================================\n');
+
+    const sampleRes = await client.query('SELECT vehicle_reg_no, rc_holder_name, total_amount_pending, notice_no, offence_description, fine_amount FROM vehicle_challans LIMIT 8;');
+    console.log('Sample Rows from PostgreSQL:');
+    console.table(sampleRes.rows);
+
+    await client.end();
   } catch (err) {
-    console.error(`[PostgresSync Error] ${err.message}`);
+    console.error('❌ Error:', err.message);
     if (client) await client.end().catch(() => {});
-    return false;
   }
 }
 
-if (require.main === module) {
-  syncToPostgres().catch(e => console.error('[PostgresSync]', e.message));
-}
-
-module.exports = {
-  syncToPostgres
-};
+inspectAndSync();
