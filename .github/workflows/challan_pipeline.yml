@@ -1,9 +1,9 @@
 name: Challan Fine Automation Pipeline (Alternate Days)
 
 on:
-  schedule:
-    # Runs at 02:30 UTC (8:00 AM IST) on alternate days (Monday, Wednesday, Friday)
-    - cron: '30 2 * * 1,3,5'
+  # Schedule paused pending GCP Mumbai / Indian runner setup with manager approval
+  # schedule:
+  #   - cron: '30 2 * * 1,3,5'
   workflow_dispatch: # Allows manual trigger from GitHub UI anytime
 
 jobs:
