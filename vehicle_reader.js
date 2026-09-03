@@ -7,7 +7,7 @@ const config = require('./config');
  * Reads and normalizes vehicle registration numbers from source file.
  */
 function loadVehicleNumbers(customPath = null) {
-  const filePath = customPath || path.resolve(__dirname, config.SOURCE_EXCEL_PATH);
+  const filePath = customPath || config.EXCEL_FILE_PATH || path.resolve(__dirname, 'Vehicle Status List_V3.xlsx');
 
   if (!fs.existsSync(filePath)) {
     throw new Error(`Source vehicle file not found at path: ${filePath}`);
@@ -21,9 +21,8 @@ function loadVehicleNumbers(customPath = null) {
 
   // Fallback to first sheet if target sheet name is not found
   if (!sheetName) {
-    console.log(`[VehicleReader] Sheet matching '${config.SOURCE_SHEET_NAME}' not found. Available sheets: ${workbook.SheetNames.join(', ')}`);
     sheetName = workbook.SheetNames[0];
-    console.log(`[VehicleReader] Fallback to first sheet: '${sheetName}'`);
+    console.log(`[VehicleReader] Using sheet: '${sheetName}'`);
   }
 
   const worksheet = workbook.Sheets[sheetName];
@@ -63,16 +62,8 @@ function loadVehicleNumbers(customPath = null) {
   return vehicles;
 }
 
-if (require.main === module) {
-  try {
-    const list = loadVehicleNumbers();
-    console.log(`Sample Vehicles (first 5):`, list.slice(0, 5));
-  } catch (err) {
-    console.error(`[VehicleReader Error]`, err.message);
-  }
-}
-
 module.exports = {
   loadVehicleNumbers,
+  loadVehiclesFromExcel: loadVehicleNumbers,
   getVehiclesToProcess: loadVehicleNumbers
 };
