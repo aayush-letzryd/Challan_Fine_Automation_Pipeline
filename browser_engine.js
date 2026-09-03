@@ -56,7 +56,7 @@ class ChallanBrowserEngine {
   }
 
   /**
-   * Initializes browser instance.
+   * Initializes browser instance with Cloud Linux & Windows compatibility.
    */
   async initBrowser() {
     const isHeadless = process.env.HEADLESS !== 'false';
@@ -69,7 +69,8 @@ class ChallanBrowserEngine {
       '--disable-gpu',
       '--disable-blink-features=AutomationControlled',
       '--no-first-run',
-      '--no-default-browser-check'
+      '--no-default-browser-check',
+      '--ignore-certificate-errors'
     ];
 
     this.browser = await chromium.launch({
@@ -79,7 +80,13 @@ class ChallanBrowserEngine {
 
     this.context = await this.browser.newContext({
       viewport: { width: 1920, height: 1080 },
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      extraHTTPHeaders: {
+        'Accept-Language': 'en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Sec-Ch-Ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"'
+      }
     });
 
     this.page = await this.context.newPage();
@@ -94,11 +101,36 @@ class ChallanBrowserEngine {
     console.log(`[BrowserEngine] Initiating Portal Navigation...`);
     console.log(`======================================================\n`);
 
-    // Step 1: Guest Traffic Fine Page
-    console.log(`[Step 1/2] Loading Traffic Police Violation Fine page...`);
-    await this.page.goto('https://www.karnatakaone.gov.in/Home/GuestTrafficFine?param=Q0d2Z2g3bVZ2OXB6b2pRRGlSNTIzdz09', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await delay(2000);
-    await dismissPopup(this.page);
+    // Robust Multi-URL Navigation with Retries for Cloud Runner Stability
+    const portalUrls = [
+      'https://www.karnatakaone.gov.in/Home/GuestTrafficFine?param=Q0d2Z2g3bVZ2OXB6b2pRRGlSNTIzdz09',
+      'https://www.karnatakaone.gov.in/PoliceCollectionOfFine/PoliceCollectionOfFineLogin'
+    ];
+
+    let navSuccess = false;
+    for (let attempt = 1; attempt <= 3 && !navSuccess; attempt++) {
+      for (const url of portalUrls) {
+        try {
+          console.log(`[Step 1/2] Loading Portal (Attempt ${attempt}): ${url}...`);
+          await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
+          await delay(2000);
+          await dismissPopup(this.page);
+
+          const mobileInput = this.page.locator('input[placeholder*="Enter Mobile No"], input[placeholder*="Mobile"]:not([type="hidden"]), #txtSearchNumber, input#SearchValue').first();
+          if (await mobileInput.isVisible().catch(() => false)) {
+            navSuccess = true;
+            break;
+          }
+        } catch (navErr) {
+          console.warn(`[BrowserEngine Warning] Navigation attempt ${attempt} to ${url} failed (${navErr.message}). Retrying...`);
+          await delay(3000);
+        }
+      }
+    }
+
+    if (!navSuccess) {
+      throw new Error(`Portal navigation failed after multiple attempts.`);
+    }
 
     // Check if already on logged-in search page
     if (this.page.url().includes('PoliceCollectionOfFineLogin')) {
@@ -256,29 +288,7 @@ class ChallanBrowserEngine {
 
       console.log(`[BrowserEngine] Extracted RC Holder Name: '${rcHolderName}' for vehicle ${regNo}`);
 
-      // Check if alert or "No Records Found" message appears
-      const pageText = await this.page.innerText('body');
-      const hasNoRecordsMsg = pageText.includes('No Records Found') || pageText.includes('No Violations Found') || pageText.includes('Invalid Registration');
-
-      if (hasNoRecordsMsg) {
-        console.log(`[BrowserEngine] Status: NO FINES / CLEAN for vehicle ${regNo}`);
-        return [{
-          vehicleRegNo: regNo,
-          rcHolderName: rcHolderName,
-          totalAmountPending: 0,
-          noticeNo: 'N/A',
-          noticeGenerationDate: 'N/A',
-          violationDate: 'N/A',
-          violationTime: 'N/A',
-          pointName: 'N/A',
-          offenceDescription: 'NO VIOLATIONS / CLEAN',
-          fineAmount: 0,
-          scrapedTimestamp: getFormattedTimestampIST(),
-          status: 'NO_FINES'
-        }];
-      }
-
-      // Extract Violation Table Rows
+      // Extract Violation Table Rows FIRST
       const tableRows = await this.page.$$('table tbody tr');
       console.log(`[BrowserEngine] Found ${tableRows.length} table row(s) for vehicle ${regNo}.`);
 
@@ -325,42 +335,43 @@ class ChallanBrowserEngine {
         }
       }
 
-      // If no valid matching rows exist for this car, mark as CLEAN / NO_FINES
-      if (tempRecords.length === 0) {
-        console.log(`[BrowserEngine] Status: NO FINES FOUND for vehicle ${regNo}`);
-        return [{
+      // If valid matching rows exist, return them
+      if (tempRecords.length > 0) {
+        const records = tempRecords.map(item => ({
           vehicleRegNo: regNo,
           rcHolderName: rcHolderName,
-          totalAmountPending: 0,
-          noticeNo: 'N/A',
-          noticeGenerationDate: 'N/A',
-          violationDate: 'N/A',
-          violationTime: 'N/A',
-          pointName: 'N/A',
-          offenceDescription: 'NO FINES FOUND',
-          fineAmount: 0,
+          totalAmountPending: cumulativeFine,
+          noticeNo: item.noticeNo,
+          noticeGenerationDate: item.noticeGenDate,
+          violationDate: item.violationDate,
+          violationTime: item.violationTime,
+          pointName: item.pointName,
+          offenceDescription: item.offenceDesc,
+          fineAmount: item.fineAmt,
           scrapedTimestamp: getFormattedTimestampIST(),
-          status: 'NO_FINES'
-        }];
+          status: 'HAS_FINES'
+        }));
+
+        console.log(`[BrowserEngine] Extracted ${records.length} valid record(s) for vehicle ${regNo}. Total Pending Fine: ₹${records[0]?.totalAmountPending || 0}`);
+        return records;
       }
 
-      const records = tempRecords.map(item => ({
+      // If no valid matching rows exist, check clean state
+      console.log(`[BrowserEngine] Status: NO FINES FOUND for vehicle ${regNo}`);
+      return [{
         vehicleRegNo: regNo,
         rcHolderName: rcHolderName,
-        totalAmountPending: cumulativeFine,
-        noticeNo: item.noticeNo,
-        noticeGenerationDate: item.noticeGenDate,
-        violationDate: item.violationDate,
-        violationTime: item.violationTime,
-        pointName: item.pointName,
-        offenceDescription: item.offenceDesc,
-        fineAmount: item.fineAmt,
+        totalAmountPending: 0,
+        noticeNo: 'N/A',
+        noticeGenerationDate: 'N/A',
+        violationDate: 'N/A',
+        violationTime: 'N/A',
+        pointName: 'N/A',
+        offenceDescription: 'NO FINES FOUND',
+        fineAmount: 0,
         scrapedTimestamp: getFormattedTimestampIST(),
-        status: 'HAS_FINES'
-      }));
-
-      console.log(`[BrowserEngine] Extracted ${records.length} valid record(s) for vehicle ${regNo}. Total Pending Fine: ₹${records[0]?.totalAmountPending || 0}`);
-      return records;
+        status: 'NO_FINES'
+      }];
 
     } catch (err) {
       console.error(`[BrowserEngine Error] Scraping failed for vehicle ${regNo}: ${err.message}`);
