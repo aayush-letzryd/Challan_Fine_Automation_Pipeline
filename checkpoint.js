@@ -3,28 +3,75 @@ const path = require('path');
 const config = require('./config');
 
 const CHECKPOINT_PATH = path.resolve(__dirname, config.CHECKPOINT_FILE);
+const CSV_PATH = config.LOCAL_RESULTS_CSV || path.resolve(__dirname, 'challan_results.csv');
 
 /**
- * Loads checkpoint file or initializes empty checkpoint data structure.
+ * Self-Healing Checkpoint Loader:
+ * If checkpoint.json on disk is missing, empty, or wiped ({ "processed": {} }),
+ * it automatically re-hydrates processed vehicle registration numbers from challan_results.csv.
  */
 function loadCheckpoint() {
+  let checkpoint = null;
+
   if (fs.existsSync(CHECKPOINT_PATH)) {
     try {
       const raw = fs.readFileSync(CHECKPOINT_PATH, 'utf-8');
-      const data = JSON.parse(raw);
-      return data;
+      checkpoint = JSON.parse(raw);
     } catch (err) {
-      console.warn(`[Checkpoint] Failed to parse checkpoint JSON, starting fresh. Error: ${err.message}`);
+      console.warn(`[Checkpoint] Failed to parse checkpoint JSON (${err.message}), re-initializing.`);
     }
   }
 
-  return {
-    processed: {},
-    lastProcessed: null,
-    totalCount: 0,
-    startTime: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
+  if (!checkpoint || typeof checkpoint !== 'object') {
+    checkpoint = {
+      processed: {},
+      lastProcessed: null,
+      totalCount: 0,
+      startTime: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  if (!checkpoint.processed) {
+    checkpoint.processed = {};
+  }
+
+  // SELF-HEALING REHYDRATION: Check if checkpoint is empty but CSV has scraped data
+  if (Object.keys(checkpoint.processed).length === 0 && fs.existsSync(CSV_PATH)) {
+    try {
+      console.log(`[Checkpoint Self-Healing] Checkpoint empty. Re-hydrating processed vehicles from master CSV...`);
+      const csvContent = fs.readFileSync(CSV_PATH, 'utf-8').replace(/\r/g, '');
+      const lines = csvContent.split('\n').filter(l => l.trim().length > 0);
+
+      let rehydratedCount = 0;
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i];
+        const firstComma = line.indexOf(',');
+        if (firstComma > 0) {
+          const rawRegNo = line.substring(0, firstComma).replace(/^"|"$/g, '').trim().toUpperCase();
+          const cleanRegNo = rawRegNo.replace(/[^A-Z0-9]/g, '');
+          if (cleanRegNo && !checkpoint.processed[cleanRegNo]) {
+            checkpoint.processed[cleanRegNo] = {
+              rehydratedFromCsv: true,
+              timestamp: new Date().toISOString()
+            };
+            rehydratedCount++;
+          }
+        }
+      }
+
+      if (rehydratedCount > 0) {
+        checkpoint.totalCount = rehydratedCount;
+        checkpoint.updatedAt = new Date().toISOString();
+        saveCheckpoint(checkpoint);
+        console.log(`[Checkpoint Self-Healing] Successfully restored ${rehydratedCount} processed vehicles into checkpoint.json!`);
+      }
+    } catch (csvErr) {
+      console.warn(`[Checkpoint Warning] Could not rehydrate from CSV: ${csvErr.message}`);
+    }
+  }
+
+  return checkpoint;
 }
 
 /**
@@ -39,8 +86,10 @@ function saveCheckpoint(checkpointData) {
  * Checks if a vehicle has been processed.
  */
 function isProcessed(regNo, customCheckpoint = null) {
-  const checkpoint = customCheckpoint || (typeof regNo === 'object' ? regNo : loadCheckpoint());
-  const cleanKey = typeof regNo === 'string' ? regNo : (regNo.clean || '');
+  const checkpoint = customCheckpoint || loadCheckpoint();
+  const cleanKey = typeof regNo === 'string' 
+    ? regNo.toUpperCase().replace(/[^A-Z0-9]/g, '') 
+    : (regNo.clean || '');
   return Boolean(checkpoint.processed && checkpoint.processed[cleanKey]);
 }
 
@@ -49,13 +98,16 @@ function isProcessed(regNo, customCheckpoint = null) {
  */
 function markProcessed(regNo, details = {}) {
   const checkpoint = loadCheckpoint();
-  if (!checkpoint.processed) checkpoint.processed = {};
-  
-  checkpoint.processed[regNo] = {
+  const cleanKey = typeof regNo === 'string' 
+    ? regNo.toUpperCase().replace(/[^A-Z0-9]/g, '') 
+    : (regNo.clean || '');
+
+  checkpoint.processed[cleanKey] = {
     timestamp: new Date().toISOString(),
     ...details
   };
-  checkpoint.lastProcessed = regNo;
+  checkpoint.lastProcessed = cleanKey;
+  checkpoint.totalCount = Object.keys(checkpoint.processed).length;
   saveCheckpoint(checkpoint);
 }
 

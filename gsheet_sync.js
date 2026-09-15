@@ -132,7 +132,7 @@ async function syncToGoogleSheet(maxRetries = 3) {
     return false;
   }
 
-  const content = fs.readFileSync(CSV_PATH, 'utf-8');
+  const content = fs.readFileSync(CSV_PATH, 'utf-8').replace(/\r/g, '');
   const lines = content.trim().split('\n').filter(line => line.trim().length > 0);
 
   if (lines.length === 0) {

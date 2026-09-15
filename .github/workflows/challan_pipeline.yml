@@ -38,6 +38,15 @@ jobs:
           PGUSER: "postgres"
           PGPASSWORD: "8S5]U3@L^Xz)\\FH}"
 
+      - name: Sequence-Safe PostgreSQL Database Sync
+        run: node db_sync.js
+        env:
+          PGHOST: "35.200.196.113"
+          PGPORT: "5432"
+          PGDATABASE: "postgres"
+          PGUSER: "postgres"
+          PGPASSWORD: "8S5]U3@L^Xz)\\FH}"
+
       - name: Commit & Push Updated Checkpoints & Results
         run: |
           git config --global user.name "github-actions[bot]"

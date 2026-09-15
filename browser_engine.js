@@ -225,7 +225,8 @@ class ChallanBrowserEngine {
   }
 
   /**
-   * Scrapes Challans for a single vehicle registration number with strict input#Name extraction.
+   * Scrapes Challans for a single vehicle registration number with strict input#Name extraction
+   * and 3-attempt exponential backoff retry loop.
    */
   async scrapeVehicleChallan(vehicleObj) {
     const regNo = vehicleObj.clean;
@@ -233,163 +234,163 @@ class ChallanBrowserEngine {
     console.log(`[BrowserEngine] Searching Challans for Vehicle: ${regNo} (${vehicleObj.original})`);
     console.log(`------------------------------------------------------`);
 
-    try {
-      await dismissPopup(this.page);
+    let lastError = null;
+    const maxSearchAttempts = 3;
 
-      // 1. Clear any old/lingering table elements from previous search
-      await this.page.evaluate(() => {
-        const oldTables = document.querySelectorAll('table');
-        oldTables.forEach(t => t.remove());
-      }).catch(() => {});
-
-      // 2. Ensure 'Registration No' radio button is explicitly selected
-      const regNoRadio = this.page.locator('input[type="radio"][value*="Registration"], #RegistrationNo, input[id*="Registration"], input[value*="Registration"]').first();
-      if (await regNoRadio.isVisible().catch(() => false)) {
-        const isChecked = await regNoRadio.isChecked().catch(() => false);
-        if (!isChecked) {
-          console.log(`[BrowserEngine] Selecting 'Registration No' radio button...`);
-          await regNoRadio.click({ force: true }).catch(() => {});
-          await delay(600);
-        }
-      }
-
-      // 3. Locate Search Input box and fill vehicle number
-      const searchInput = this.page.locator('#SearchValue, #txtSearchNumber, input[id*="Search"], input[name*="Search"]').first();
-      await searchInput.fill('');
-      await delay(200);
-      await searchInput.fill(regNo);
-      await delay(400);
-
-      // 4. Click Search button
-      console.log(`[BrowserEngine] Clicking 'Search' button for ${regNo}...`);
-      const searchBtn = this.page.locator('#btnSearch, button:has-text("Search"), input[value="Search"]').first();
-      await searchBtn.click({ force: true });
-
-      // Wait for AJAX response
-      await delay(3500);
-
-      // 5. EXACT RC Holder Name Extractor (reads input#Name value)
-      let rcHolderName = 'N/A';
+    for (let attempt = 1; attempt <= maxSearchAttempts; attempt++) {
       try {
-        rcHolderName = await this.page.evaluate(() => {
-          const nameInput = document.querySelector('input#Name, input[name="Name"], #Name');
-          if (nameInput && nameInput.value) {
-            const val = nameInput.value.trim();
-            // Discard phone numbers or validation prompts
-            if (val && !/^\d+$/.test(val) && !val.toLowerCase().includes('please enter') && val.length > 2) {
-              return val;
-            }
-          }
-          return 'N/A';
-        });
-      } catch (e) {
-        rcHolderName = 'N/A';
-      }
-
-      console.log(`[BrowserEngine] Extracted RC Holder Name: '${rcHolderName}' for vehicle ${regNo}`);
-
-      // Extract Violation Table Rows FIRST
-      const tableRows = await this.page.$$('table tbody tr');
-      console.log(`[BrowserEngine] Found ${tableRows.length} table row(s) for vehicle ${regNo}.`);
-
-      const tempRecords = [];
-      let cumulativeFine = 0;
-
-      for (const row of tableRows) {
-        const cells = await row.$$('td');
-        if (cells.length >= 8) {
-          const cellTexts = [];
-          for (const cell of cells) {
-            const txt = await cell.innerText();
-            cellTexts.push(txt.trim());
-          }
-
-          const noticeNo = cellTexts[1] || 'N/A';
-          const rowRegNoRaw = cellTexts[2] || '';
-          const rowRegNoClean = rowRegNoRaw.toUpperCase().replace(/[^A-Z0-9]/g, '');
-
-          // STRICT STALE ROW VERIFICATION
-          if (rowRegNoClean && rowRegNoClean !== regNo) {
-            console.warn(`[BrowserEngine Warning] Stale table row detected (${rowRegNoClean} != ${regNo}). Ignoring stale row.`);
-            continue;
-          }
-
-          const noticeGenDate = cellTexts[3] || 'N/A';
-          const violationDate = cellTexts[4] || 'N/A';
-          const violationTime = cellTexts[5] || 'N/A';
-          const pointName = cellTexts[6] || 'N/A';
-          const offenceDesc = cellTexts[7] || 'N/A';
-          const fineAmtStr = cellTexts[8] ? cellTexts[8].replace(/[^0-9]/g, '') : '0';
-          const fineAmt = parseInt(fineAmtStr, 10) || 0;
-          cumulativeFine += fineAmt;
-
-          tempRecords.push({
-            noticeNo,
-            noticeGenDate,
-            violationDate,
-            violationTime,
-            pointName,
-            offenceDesc,
-            fineAmt
-          });
+        if (attempt > 1) {
+          console.log(`[BrowserEngine] Retrying search for ${regNo} (Attempt ${attempt}/${maxSearchAttempts})...`);
+          await delay(1500 * attempt);
         }
-      }
 
-      // If valid matching rows exist, return them
-      if (tempRecords.length > 0) {
-        const records = tempRecords.map(item => ({
+        await dismissPopup(this.page);
+
+        // 1. Clear any old/lingering table elements from previous search
+        await this.page.evaluate(() => {
+          const oldTables = document.querySelectorAll('table');
+          oldTables.forEach(t => t.remove());
+        }).catch(() => {});
+
+        // 2. Ensure 'Registration No' radio button is explicitly selected
+        const regNoRadio = this.page.locator('input[type="radio"][value*="Registration"], #RegistrationNo, input[id*="Registration"], input[value*="Registration"]').first();
+        if (await regNoRadio.isVisible().catch(() => false)) {
+          const isChecked = await regNoRadio.isChecked().catch(() => false);
+          if (!isChecked) {
+            console.log(`[BrowserEngine] Selecting 'Registration No' radio button...`);
+            await regNoRadio.click({ force: true }).catch(() => {});
+            await delay(600);
+          }
+        }
+
+        // 3. Locate Search Input box and fill vehicle number
+        const searchInput = this.page.locator('#SearchValue, #txtSearchNumber, input[id*="Search"], input[name*="Search"]').first();
+        await searchInput.fill('');
+        await delay(200);
+        await searchInput.fill(regNo);
+        await delay(400);
+
+        // 4. Click Search button
+        console.log(`[BrowserEngine] Clicking 'Search' button for ${regNo}...`);
+        const searchBtn = this.page.locator('#btnSearch, button:has-text("Search"), input[value="Search"]').first();
+        await searchBtn.click({ force: true });
+
+        // Wait for AJAX response
+        await delay(3500);
+
+        // 5. EXACT RC Holder Name Extractor (reads input#Name value)
+        let rcHolderName = 'N/A';
+        try {
+          rcHolderName = await this.page.evaluate(() => {
+            const nameInput = document.querySelector('input#Name, input[name="Name"], #Name');
+            if (nameInput && nameInput.value) {
+              const val = nameInput.value.trim();
+              if (val && !/^\d+$/.test(val) && !val.toLowerCase().includes('please enter') && val.length > 2) {
+                return val;
+              }
+            }
+            return 'N/A';
+          });
+        } catch (e) {
+          rcHolderName = 'N/A';
+        }
+
+        console.log(`[BrowserEngine] Extracted RC Holder Name: '${rcHolderName}' for vehicle ${regNo}`);
+
+        // Extract Violation Table Rows FIRST
+        const tableRows = await this.page.$$('table tbody tr');
+        console.log(`[BrowserEngine] Found ${tableRows.length} table row(s) for vehicle ${regNo}.`);
+
+        const tempRecords = [];
+        let cumulativeFine = 0;
+
+        for (const row of tableRows) {
+          const cells = await row.$$('td');
+          if (cells.length >= 8) {
+            const cellTexts = [];
+            for (const cell of cells) {
+              const txt = await cell.innerText();
+              cellTexts.push(txt.trim());
+            }
+
+            const noticeNo = cellTexts[1] || 'N/A';
+            const rowRegNoRaw = cellTexts[2] || '';
+            const rowRegNoClean = rowRegNoRaw.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+            // STRICT STALE ROW VERIFICATION
+            if (rowRegNoClean && rowRegNoClean !== regNo) {
+              console.warn(`[BrowserEngine Warning] Stale table row detected (${rowRegNoClean} != ${regNo}). Ignoring stale row.`);
+              continue;
+            }
+
+            const noticeGenDate = cellTexts[3] || 'N/A';
+            const violationDate = cellTexts[4] || 'N/A';
+            const violationTime = cellTexts[5] || 'N/A';
+            const pointName = cellTexts[6] || 'N/A';
+            const offenceDesc = cellTexts[7] || 'N/A';
+            const fineAmtStr = cellTexts[8] ? cellTexts[8].replace(/[^0-9]/g, '') : '0';
+            const fineAmt = parseInt(fineAmtStr, 10) || 0;
+            cumulativeFine += fineAmt;
+
+            tempRecords.push({
+              noticeNo,
+              noticeGenDate,
+              violationDate,
+              violationTime,
+              pointName,
+              offenceDesc,
+              fineAmt
+            });
+          }
+        }
+
+        // If valid matching rows exist, return them
+        if (tempRecords.length > 0) {
+          const records = tempRecords.map(item => ({
+            vehicleRegNo: regNo,
+            rcHolderName: rcHolderName,
+            totalAmountPending: cumulativeFine,
+            noticeNo: item.noticeNo,
+            noticeGenerationDate: item.noticeGenDate,
+            violationDate: item.violationDate,
+            violationTime: item.violationTime,
+            pointName: item.pointName,
+            offenceDescription: item.offenceDesc,
+            fineAmount: item.fineAmt,
+            scrapedTimestamp: getFormattedTimestampIST(),
+            status: 'HAS_FINES'
+          }));
+
+          console.log(`[BrowserEngine] Extracted ${records.length} valid record(s) for vehicle ${regNo}. Total Pending Fine: ₹${records[0]?.totalAmountPending || 0}`);
+          return records;
+        }
+
+        // If no valid matching rows exist, check clean state
+        console.log(`[BrowserEngine] Status: NO FINES FOUND for vehicle ${regNo}`);
+        return [{
           vehicleRegNo: regNo,
           rcHolderName: rcHolderName,
-          totalAmountPending: cumulativeFine,
-          noticeNo: item.noticeNo,
-          noticeGenerationDate: item.noticeGenDate,
-          violationDate: item.violationDate,
-          violationTime: item.violationTime,
-          pointName: item.pointName,
-          offenceDescription: item.offenceDesc,
-          fineAmount: item.fineAmt,
+          totalAmountPending: 0,
+          noticeNo: 'N/A',
+          noticeGenerationDate: 'N/A',
+          violationDate: 'N/A',
+          violationTime: 'N/A',
+          pointName: 'N/A',
+          offenceDescription: 'NO FINES FOUND',
+          fineAmount: 0,
           scrapedTimestamp: getFormattedTimestampIST(),
-          status: 'HAS_FINES'
-        }));
+          status: 'NO_FINES'
+        }];
 
-        console.log(`[BrowserEngine] Extracted ${records.length} valid record(s) for vehicle ${regNo}. Total Pending Fine: ₹${records[0]?.totalAmountPending || 0}`);
-        return records;
+      } catch (err) {
+        lastError = err;
+        console.warn(`[BrowserEngine Warning] Search attempt ${attempt}/${maxSearchAttempts} for ${regNo} encountered error: ${err.message}`);
       }
-
-      // If no valid matching rows exist, check clean state
-      console.log(`[BrowserEngine] Status: NO FINES FOUND for vehicle ${regNo}`);
-      return [{
-        vehicleRegNo: regNo,
-        rcHolderName: rcHolderName,
-        totalAmountPending: 0,
-        noticeNo: 'N/A',
-        noticeGenerationDate: 'N/A',
-        violationDate: 'N/A',
-        violationTime: 'N/A',
-        pointName: 'N/A',
-        offenceDescription: 'NO FINES FOUND',
-        fineAmount: 0,
-        scrapedTimestamp: getFormattedTimestampIST(),
-        status: 'NO_FINES'
-      }];
-
-    } catch (err) {
-      console.error(`[BrowserEngine Error] Scraping failed for vehicle ${regNo}: ${err.message}`);
-      return [{
-        vehicleRegNo: regNo,
-        rcHolderName: 'ERROR',
-        totalAmountPending: 0,
-        noticeNo: 'ERROR',
-        noticeGenerationDate: 'N/A',
-        violationDate: 'N/A',
-        violationTime: 'N/A',
-        pointName: 'N/A',
-        offenceDescription: `SCRAPE_ERROR: ${err.message}`,
-        fineAmount: 0,
-        scrapedTimestamp: getFormattedTimestampIST(),
-        status: 'ERROR'
-      }];
     }
+
+    // If all retries failed, log to stderr and throw so main loop isolates the error without polluting DB
+    console.error(`[BrowserEngine Error] All ${maxSearchAttempts} search attempts failed for vehicle ${regNo}: ${lastError?.message}`);
+    throw new Error(`PORTAL_LOOKUP_FAILED: ${lastError?.message}`);
   }
 
   /**

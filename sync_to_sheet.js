@@ -7,9 +7,23 @@ const SPREADSHEET_ID = config.TARGET_GSHEET_ID || '1xNesMscihuP3uvY_aOVD34Yf9H6L
 const CSV_PATH = config.LOCAL_RESULTS_CSV || path.join(__dirname, 'challan_results.csv');
 
 /**
- * Gets a fresh OAuth access token via gcloud CLI.
+ * Gets a fresh OAuth access token via Cloud Run Metadata Server or gcloud CLI.
  */
-function getAccessToken() {
+async function getAccessToken() {
+  // 1. Try GCP Cloud Run Metadata Server
+  try {
+    const res = await fetch('http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token', {
+      headers: { 'Metadata-Flavor': 'Google' }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.access_token) return data.access_token;
+    }
+  } catch (e) {
+    // Not running on GCP metadata server or local fallback
+  }
+
+  // 2. Fallback to local gcloud CLI
   try {
     const token = execSync('gcloud auth print-access-token', { encoding: 'utf-8' }).trim();
     return token;
@@ -34,14 +48,14 @@ async function syncToGoogleSheet() {
     return false;
   }
 
-  const token = getAccessToken();
+  const token = await getAccessToken();
   if (!token) {
     console.error(`[GoogleSheetSync] Unable to authenticate with Google API.`);
     return false;
   }
 
   // Parse CSV records into rows array
-  const fileContent = fs.readFileSync(CSV_PATH, 'utf-8');
+  const fileContent = fs.readFileSync(CSV_PATH, 'utf-8').replace(/\r/g, '');
   const lines = fileContent.trim().split('\n').filter(line => line.length > 0);
 
   if (lines.length === 0) {
@@ -121,5 +135,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  syncToGoogleSheet
+  syncToGoogleSheet,
+  syncToGoogleSheets: syncToGoogleSheet
 };
