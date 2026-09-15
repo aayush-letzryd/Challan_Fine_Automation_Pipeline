@@ -11,17 +11,17 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 /**
  * Runs a formatted countdown for the inter-batch cooldown period.
  */
-async function runCooldownTimer(minutes) {
+async function runCooldownTimer(seconds = 30) {
   console.log(`\n===============================================================`);
-  console.log(` [COOLDOWN] Waiting ${minutes} minutes before starting next batch...`);
+  console.log(` [COOLDOWN] Waiting ${seconds} seconds before starting next batch...`);
   console.log(`===============================================================`);
 
-  const totalSeconds = minutes * 60;
-  for (let s = totalSeconds; s > 0; s--) {
-    if (s % 60 === 0) {
-      console.log(`[Cooldown Timer] ${s / 60} minute(s) remaining until next batch session...`);
-    }
-    await delay(1000);
+  let remaining = seconds;
+  while (remaining > 0) {
+    console.log(`[Cooldown Timer] ${remaining} second(s) remaining until next batch session...`);
+    const step = Math.min(5, remaining);
+    await delay(step * 1000);
+    remaining -= step;
   }
   console.log(`[Cooldown Timer] Cooldown complete! Initiating next batch session...\n`);
 }
@@ -30,6 +30,8 @@ async function runCooldownTimer(minutes) {
  * Main Multi-Batch Automation Pipeline Execution Controller
  */
 async function runAutomationPipeline() {
+  const cooldownSecs = config.COOLDOWN_SECONDS || (config.COOLDOWN_MINUTES ? Math.round(config.COOLDOWN_MINUTES * 60) : 30);
+
   console.log('===============================================================');
   console.log('  CHALLAN DATA AUTOMATION PIPELINE - KARNATAKA ONE PORTAL');
   console.log('===============================================================');
@@ -38,7 +40,7 @@ async function runAutomationPipeline() {
   console.log(`* Target PostgreSQL Database: ${config.PG_CONFIG.database} on ${config.PG_CONFIG.host}`);
   console.log(`* Batch Size: ${config.BATCH_SIZE} vehicles per session`);
   console.log(`* Max Batches Scheduled: ${config.MAX_BATCHES} (${config.BATCH_SIZE * config.MAX_BATCHES} vehicles max)`);
-  console.log(`* Inter-Batch Cooldown: ${config.COOLDOWN_MINUTES} minutes`);
+  console.log(`* Inter-Batch Cooldown: ${cooldownSecs} seconds`);
 
   // 1. Load Master Vehicles List from Excel
   const allVehicles = loadVehiclesFromExcel(config.EXCEL_FILE_PATH);
@@ -59,7 +61,6 @@ async function runAutomationPipeline() {
 
   const batchSize = config.BATCH_SIZE || 50;
   const maxBatches = config.MAX_BATCHES || 10;
-  const cooldownMinutes = config.COOLDOWN_MINUTES || 10;
   let batchesProcessed = 0;
 
   while (pendingVehicles.length > 0 && batchesProcessed < maxBatches) {
@@ -141,9 +142,9 @@ async function runAutomationPipeline() {
     console.log(` Remaining Vehicles to Process: ${pendingVehicles.length}`);
     console.log(`===============================================================`);
 
-    // Step F: 10-Minute Cooldown if more batches remain in this run
+    // Step F: 30-Second Cooldown if more batches remain in this run
     if (pendingVehicles.length > 0 && batchesProcessed < maxBatches) {
-      await runCooldownTimer(cooldownMinutes);
+      await runCooldownTimer(cooldownSecs);
     }
   }
 

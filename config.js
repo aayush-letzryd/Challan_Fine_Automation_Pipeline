@@ -26,7 +26,8 @@ module.exports = {
   // Batch Processing Configuration
   BATCH_SIZE: parseInt(process.env.BATCH_SIZE || '50', 10),
   MAX_BATCHES: parseInt(process.env.MAX_BATCHES || '10', 10), // 10 batches per scheduled run (500 vehicles/day)
-  COOLDOWN_MINUTES: parseInt(process.env.COOLDOWN_MINUTES || '10', 10), // 10-minute interval between batches
+  COOLDOWN_SECONDS: parseInt(process.env.COOLDOWN_SECONDS || '30', 10), // 30-second interval between batches
+  COOLDOWN_MINUTES: parseFloat(process.env.COOLDOWN_MINUTES || '0.5'),
 
   // PostgreSQL Production Database Configuration
   PG_CONFIG: {
