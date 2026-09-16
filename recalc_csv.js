@@ -38,7 +38,7 @@ function recalculateTotals() {
   const vehicleTotals = {};
   for (const r of rows) {
     const regNo = r[0];
-    const fineAmt = parseInt(r[10] || '0', 10) || 0;
+    const fineAmt = parseInt(r[9] || '0', 10) || 0;
     vehicleTotals[regNo] = (vehicleTotals[regNo] || 0) + fineAmt;
   }
 

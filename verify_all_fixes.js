@@ -21,7 +21,7 @@ async function runVerification() {
     const seqBeforeRes = await client.query("SELECT last_value FROM vehicle_challans_id_seq;");
     const seqBefore = parseInt(seqBeforeRes.rows[0].last_value, 10);
 
-    await syncToPostgres(client);
+    const syncSuccess = await syncToPostgres(client);
 
     const seqAfterRes = await client.query("SELECT last_value FROM vehicle_challans_id_seq;");
     const seqAfter = parseInt(seqAfterRes.rows[0].last_value, 10);
@@ -36,11 +36,13 @@ async function runVerification() {
 
     const dbCounts = dbCountsRes.rows[0];
     const burnedSequences = seqAfter - seqBefore;
-    results.sequenceBurningFixed = (burnedSequences === 0);
+    results.syncSucceeded = (syncSuccess === true);
+    results.sequenceBurningFixed = (burnedSequences === 0 && syncSuccess === true);
     results.dbTotalRows = parseInt(dbCounts.total_rows, 10);
     results.dbUniqueVehicles = parseInt(dbCounts.unique_vehicles, 10);
     results.dbTotalFineAmount = parseFloat(dbCounts.total_fine_amount);
 
+    console.log(` -> Sync Succeeded: ${syncSuccess} -> ${results.syncSucceeded ? 'PASSED ✅' : 'FAILED ❌'}`);
     console.log(` -> Sequence Before Sync: ${seqBefore} | Sequence After Sync: ${seqAfter}`);
     console.log(` -> Burned Sequence Count: ${burnedSequences} (Expected: 0) -> ${results.sequenceBurningFixed ? 'PASSED ✅' : 'FAILED ❌'}`);
     console.log(` -> Database Total Rows: ${results.dbTotalRows}, Unique Vehicles: ${results.dbUniqueVehicles}, Total Fines: ₹${results.dbTotalFineAmount}`);

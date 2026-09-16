@@ -29,17 +29,31 @@ function isKarnatakaOneMessage(message, from) {
 function extractOtpFromMessage(msg) {
   if (!msg) return null;
 
-  // Pattern 1: "Your OTP to Validate Mobile No. is 5871"
-  const m1 = msg.match(/(?:Validate Mobile No\.\s*is|is\s*valid\s*for|OTP\s*is|code\s*is)\s*([0-9]{4,6})/i);
-  if (m1 && m1[1]) return m1[1];
+  const INVALID_YEARS = new Set(['2023', '2024', '2025', '2026', '2027', '2028', '2029', '2030']);
 
-  // Pattern 2: "is 5871 And the OTP is valid"
-  const m2 = msg.match(/\bis\s+([0-9]{4,6})\b/i);
-  if (m2 && m2[1]) return m2[1];
+  // Pattern 1: Explicit OTP keyword prefix (e.g., "is 5871", "OTP is 5871", "code is 5871")
+  const m1 = msg.match(/(?:Validate Mobile No\.\s*is|is\s*valid\s*for|OTP\s*is|code\s*is|login\s*is|Use)\s*([0-9]{4,6})/i);
+  if (m1 && m1[1] && !INVALID_YEARS.has(m1[1])) return m1[1];
 
-  // Pattern 3: Fallback 4-6 digit sequence in Karnataka One message
-  const m3 = msg.match(/\b([0-9]{4,6})\b/);
-  if (m3 && m3[1]) return m3[1];
+  // Pattern 2: "583920 is your (OTP|code|login)"
+  const m2 = msg.match(/\b([0-9]{4,6})\s+(?:is\s+your\s+(?:[0-9]+\s+digit\s+)?(?:OTP|code|login)|as\s+your\s+OTP)\b/i);
+  if (m2 && m2[1] && !INVALID_YEARS.has(m2[1])) return m2[1];
+
+  // Pattern 3: "is 5871"
+  const m3 = msg.match(/\bis\s+([0-9]{4,6})\b/i);
+  if (m3 && m3[1] && !INVALID_YEARS.has(m3[1])) return m3[1];
+
+  // If message contains explicit OTP keyword, extract first non-year 4-6 digit code
+  if (/OTP|Validate Mobile|verification code|login code/i.test(msg)) {
+    const matches = msg.match(/\b([0-9]{4,6})\b/g);
+    if (matches) {
+      for (const code of matches) {
+        if (!INVALID_YEARS.has(code)) {
+          return code;
+        }
+      }
+    }
+  }
 
   return null;
 }

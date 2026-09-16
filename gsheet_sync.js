@@ -122,9 +122,13 @@ function postJsonWithRedirect(targetUrl, jsonData) {
  * Reads local CSV data and posts to Google Apps Script Webhook URL
  */
 async function syncToGoogleSheet(maxRetries = 3) {
+  const targetSheetId = config.TARGET_SHEET_ID || '1xNesMscihuP3uvY_aOVD34Yf9H6L8uarweEZcwpwBKs';
+  const targetSheetUrl = `https://docs.google.com/spreadsheets/d/${targetSheetId}/edit?usp=sharing`;
+  const webhookUrl = config.APPS_SCRIPT_WEBHOOK_URL || config.GSHEET_WEBHOOK_URL;
+
   console.log(`\n======================================================`);
   console.log(`[GoogleSheetSync] Syncing data to Google Sheet...`);
-  console.log(`[GoogleSheetSync] Target Sheet URL: ${config.TARGET_GSHEET_URL}`);
+  console.log(`[GoogleSheetSync] Target Sheet URL: ${targetSheetUrl}`);
   console.log(`======================================================\n`);
 
   if (!fs.existsSync(CSV_PATH)) {

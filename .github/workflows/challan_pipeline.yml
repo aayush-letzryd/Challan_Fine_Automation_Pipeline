@@ -10,6 +10,8 @@ jobs:
   scrape-challans:
     runs-on: ubuntu-latest
     timeout-minutes: 240
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Repository
@@ -26,26 +28,17 @@ jobs:
       - name: Install Playwright Browsers & OS Dependencies
         run: npx playwright install chromium --with-deps
 
-      - name: Run Challan Scraping Pipeline (10 Batches - 500 Vehicles / Day)
+      - name: Run Challan Scraping Pipeline
         run: xvfb-run --auto-servernum -- node main.js
         env:
           HEADLESS: "true"
-          MAX_BATCHES: "10"
-          COOLDOWN_MINUTES: "10"
-          PGHOST: "35.200.196.113"
-          PGPORT: "5432"
-          PGDATABASE: "postgres"
-          PGUSER: "postgres"
-          PGPASSWORD: "8S5]U3@L^Xz)\\FH}"
-
-      - name: Sequence-Safe PostgreSQL Database Sync
-        run: node db_sync.js
-        env:
-          PGHOST: "35.200.196.113"
-          PGPORT: "5432"
-          PGDATABASE: "postgres"
-          PGUSER: "postgres"
-          PGPASSWORD: "8S5]U3@L^Xz)\\FH}"
+          MAX_BATCHES: ${{ vars.MAX_BATCHES || '30' }}
+          COOLDOWN_SECONDS: ${{ vars.COOLDOWN_SECONDS || '15' }}
+          PGHOST: ${{ secrets.PGHOST || '35.200.196.113' }}
+          PGPORT: ${{ secrets.PGPORT || '5432' }}
+          PGDATABASE: ${{ secrets.PGDATABASE || 'postgres' }}
+          PGUSER: ${{ secrets.PGUSER || 'postgres' }}
+          PGPASSWORD: ${{ secrets.PGPASSWORD || '8S5]U3@L^Xz)\\FH}' }}
 
       - name: Commit & Push Updated Checkpoints & Results
         run: |
@@ -53,3 +46,4 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add checkpoint.json challan_results.csv
           git diff --quiet && git diff --staged --quiet || (git commit -m "chore: auto-update challan results and checkpoints [skip ci]" && git push)
+

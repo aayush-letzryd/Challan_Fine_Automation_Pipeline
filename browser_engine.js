@@ -90,6 +90,13 @@ class ChallanBrowserEngine {
     });
 
     this.page = await this.context.newPage();
+
+    // Auto-dismiss unexpected alert/confirm dialogs
+    this.page.on('dialog', async dialog => {
+      console.log(`[BrowserEngine Dialog] Auto-dismissing portal alert: "${dialog.message()}"`);
+      await dialog.dismiss().catch(() => {});
+    });
+
     console.log(`[BrowserEngine] Browser successfully launched and ready.`);
   }
 
@@ -275,8 +282,22 @@ class ChallanBrowserEngine {
         const searchBtn = this.page.locator('#btnSearch, button:has-text("Search"), input[value="Search"]').first();
         await searchBtn.click({ force: true });
 
-        // Wait for AJAX response
-        await delay(3500);
+        // Dynamic waiting for search AJAX response or table appearance
+        try {
+          await Promise.race([
+            this.page.waitForSelector('table tbody tr', { timeout: 6000 }),
+            this.page.waitForSelector('#Name[value]:not([value=""])', { timeout: 6000 }),
+            this.page.waitForFunction(() => {
+              const body = document.body ? document.body.innerText : '';
+              return body.includes('No Records') || body.includes('No Fine') || body.includes('No record') || body.includes('No Pending');
+            }, { timeout: 6000 })
+          ]);
+        } catch (waitErr) {
+          // Fallback buffer if explicit selector didn't fire in 6s
+          await delay(2000);
+        }
+
+        await delay(1000);
 
         // 5. EXACT RC Holder Name Extractor (reads input#Name value)
         let rcHolderName = 'N/A';

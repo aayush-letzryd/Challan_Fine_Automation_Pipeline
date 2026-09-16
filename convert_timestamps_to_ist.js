@@ -59,9 +59,9 @@ function convertCsvTimestamps() {
     }
     cells.push(currentCell.replace(/^"|"$/g, '').replace(/""/g, '"'));
 
-    // Column L (index 11) is Scraped Timestamp
-    if (cells.length >= 12) {
-      cells[11] = formatToIST(cells[11]);
+    // Column K (index 10) is Scraped Timestamp
+    if (cells.length >= 11) {
+      cells[10] = formatToIST(cells[10]);
     }
 
     const newCsvLine = cells.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',');

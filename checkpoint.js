@@ -36,10 +36,9 @@ function loadCheckpoint() {
     checkpoint.processed = {};
   }
 
-  // SELF-HEALING REHYDRATION: Check if checkpoint is empty but CSV has scraped data
-  if (Object.keys(checkpoint.processed).length === 0 && fs.existsSync(CSV_PATH)) {
+  // ACTIVE SYNC & REHYDRATION: Always ensure any vehicle scraped in CSV is present in checkpoint
+  if (fs.existsSync(CSV_PATH)) {
     try {
-      console.log(`[Checkpoint Self-Healing] Checkpoint empty. Re-hydrating processed vehicles from master CSV...`);
       const csvContent = fs.readFileSync(CSV_PATH, 'utf-8').replace(/\r/g, '');
       const lines = csvContent.split('\n').filter(l => l.trim().length > 0);
 
@@ -50,7 +49,7 @@ function loadCheckpoint() {
         if (firstComma > 0) {
           const rawRegNo = line.substring(0, firstComma).replace(/^"|"$/g, '').trim().toUpperCase();
           const cleanRegNo = rawRegNo.replace(/[^A-Z0-9]/g, '');
-          if (cleanRegNo && !checkpoint.processed[cleanRegNo]) {
+          if (cleanRegNo && cleanRegNo.length >= 5 && cleanRegNo !== 'NA' && !checkpoint.processed[cleanRegNo]) {
             checkpoint.processed[cleanRegNo] = {
               rehydratedFromCsv: true,
               timestamp: new Date().toISOString()
@@ -61,13 +60,13 @@ function loadCheckpoint() {
       }
 
       if (rehydratedCount > 0) {
-        checkpoint.totalCount = rehydratedCount;
+        checkpoint.totalCount = Object.keys(checkpoint.processed).length;
         checkpoint.updatedAt = new Date().toISOString();
         saveCheckpoint(checkpoint);
-        console.log(`[Checkpoint Self-Healing] Successfully restored ${rehydratedCount} processed vehicles into checkpoint.json!`);
+        console.log(`[Checkpoint Sync] Re-hydrated ${rehydratedCount} previously scraped vehicles from CSV into checkpoint.json (Total tracked: ${checkpoint.totalCount}).`);
       }
     } catch (csvErr) {
-      console.warn(`[Checkpoint Warning] Could not rehydrate from CSV: ${csvErr.message}`);
+      console.warn(`[Checkpoint Warning] Could not sync from CSV: ${csvErr.message}`);
     }
   }
 

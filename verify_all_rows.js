@@ -64,12 +64,12 @@ function auditDataset() {
     const timestamp = cells[10];
     const status = cells[11];
 
-    if (!regNo || regNo.length < 5) {
+    if (!regNo || regNo === 'N/A' || regNo.length < 5) {
       console.error(`[Integrity Error] Row ${i + 1} has invalid Vehicle Reg No: '${regNo}'`);
       issuesFound++;
     }
 
-    if (rcName.toLowerCase().includes('please enter')) {
+    if (rcName && typeof rcName === 'string' && rcName.toLowerCase().includes('please enter')) {
       console.error(`[Integrity Error] Row ${i + 1} has invalid RC Name prompt: '${rcName}'`);
       issuesFound++;
     }

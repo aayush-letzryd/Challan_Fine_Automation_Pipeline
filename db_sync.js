@@ -89,7 +89,7 @@ async function syncToPostgres(existingClient = null) {
     // 1. Transactional Advisory Lock (Prevents concurrent race conditions)
     await client.query('SELECT pg_advisory_xact_lock(7483731338)');
 
-    // 2. Create Temporary Staging Table (Zero Sequence Impact, dropped on commit)
+    // 3. Create Temporary Staging Table
     await client.query(`
       CREATE TEMP TABLE tmp_sync_challans (
         vehicle_reg_no VARCHAR(20),
@@ -107,7 +107,7 @@ async function syncToPostgres(existingClient = null) {
       ) ON COMMIT DROP;
     `);
 
-    // 4. Bulk populate Temporary Staging Table in high-speed multi-row chunks
+    // 4. Bulk populate Temporary Staging Table
     const CHUNK_SIZE = 50;
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
       const chunk = rows.slice(i, i + CHUNK_SIZE);
@@ -145,44 +145,62 @@ async function syncToPostgres(existingClient = null) {
       await client.query(chunkQuery, values);
     }
 
-    // 5. Stage 1: UPDATE existing records (Zero Sequence Advancement)
-    const updateResult = await client.query(`
-      UPDATE vehicle_challans v
-      SET rc_holder_name = t.rc_holder_name,
-          total_amount_pending = t.total_amount_pending,
-          notice_generation_date = t.notice_generation_date,
-          violation_date = t.violation_date,
-          violation_time = t.violation_time,
-          point_name = t.point_name,
-          fine_amount = t.fine_amount,
-          scraped_timestamp = t.scraped_timestamp,
-          status = t.status,
-          updated_at = CURRENT_TIMESTAMP
-      FROM tmp_sync_challans t
-      WHERE v.vehicle_reg_no = t.vehicle_reg_no
-        AND v.notice_no = t.notice_no
-        AND v.offence_description = t.offence_description;
-    `);
-
-    // 6. Stage 2: INSERT ONLY genuinely new records (Sequence advances ONLY for new rows)
-    const insertResult = await client.query(`
-      INSERT INTO vehicle_challans (
-        vehicle_reg_no, rc_holder_name, total_amount_pending, notice_no,
-        notice_generation_date, violation_date, violation_time, point_name,
-        offence_description, fine_amount, scraped_timestamp, status, updated_at
-      )
-      SELECT DISTINCT ON (t.vehicle_reg_no, t.notice_no, t.offence_description)
-        t.vehicle_reg_no, t.rc_holder_name, t.total_amount_pending, t.notice_no,
-        t.notice_generation_date, t.violation_date, t.violation_time, t.point_name,
-        t.offence_description, t.fine_amount, t.scraped_timestamp, t.status, CURRENT_TIMESTAMP
-      FROM tmp_sync_challans t
-      WHERE NOT EXISTS (
-        SELECT 1 FROM vehicle_challans v
+    // 5. Stage 1: UPDATE existing records (Only update if data actually changed to avoid trigger overhead)
+    let updateResult;
+    try {
+      updateResult = await client.query(`
+        UPDATE vehicle_challans v
+        SET rc_holder_name = t.rc_holder_name,
+            total_amount_pending = t.total_amount_pending,
+            notice_generation_date = t.notice_generation_date,
+            violation_date = t.violation_date,
+            violation_time = t.violation_time,
+            point_name = t.point_name,
+            fine_amount = t.fine_amount,
+            scraped_timestamp = t.scraped_timestamp,
+            status = t.status,
+            updated_at = CURRENT_TIMESTAMP
+        FROM tmp_sync_challans t
         WHERE v.vehicle_reg_no = t.vehicle_reg_no
           AND v.notice_no = t.notice_no
           AND v.offence_description = t.offence_description
-      );
-    `);
+          AND (
+            v.total_amount_pending IS DISTINCT FROM t.total_amount_pending OR
+            v.rc_holder_name IS DISTINCT FROM t.rc_holder_name OR
+            v.fine_amount IS DISTINCT FROM t.fine_amount OR
+            v.status IS DISTINCT FROM t.status
+          );
+      `);
+    } catch (e) {
+      console.error(`[PostgresSync Stage 1 UPDATE Error] ${e.message}`);
+      throw e;
+    }
+
+    // 6. Stage 2: INSERT ONLY genuinely new records
+    let insertResult;
+    try {
+      insertResult = await client.query(`
+        INSERT INTO vehicle_challans (
+          vehicle_reg_no, rc_holder_name, total_amount_pending, notice_no,
+          notice_generation_date, violation_date, violation_time, point_name,
+          offence_description, fine_amount, scraped_timestamp, status, updated_at
+        )
+        SELECT DISTINCT ON (t.vehicle_reg_no, t.notice_no, t.offence_description)
+          t.vehicle_reg_no, t.rc_holder_name, t.total_amount_pending, t.notice_no,
+          t.notice_generation_date, t.violation_date, t.violation_time, t.point_name,
+          t.offence_description, t.fine_amount, t.scraped_timestamp, t.status, CURRENT_TIMESTAMP
+        FROM tmp_sync_challans t
+        WHERE NOT EXISTS (
+          SELECT 1 FROM vehicle_challans v
+          WHERE v.vehicle_reg_no = t.vehicle_reg_no
+            AND v.notice_no = t.notice_no
+            AND v.offence_description = t.offence_description
+        );
+      `);
+    } catch (e) {
+      console.error(`[PostgresSync Stage 2 INSERT Error] ${e.message}`);
+      throw e;
+    }
 
     // 7. Clean up any legacy error entries from staging
     await client.query(`
