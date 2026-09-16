@@ -25,7 +25,7 @@ module.exports = {
 
   // Batch Processing Configuration
   BATCH_SIZE: parseInt(process.env.BATCH_SIZE || '50', 10),
-  MAX_BATCHES: parseInt(process.env.MAX_BATCHES || '10', 10), // 10 batches per scheduled run (500 vehicles/day)
+  MAX_BATCHES: parseInt(process.env.MAX_BATCHES || '25', 10), // 25 batches per scheduled run (processes all 1,041 fleet vehicles in 1 day)
   COOLDOWN_SECONDS: parseInt(process.env.COOLDOWN_SECONDS || '30', 10), // 30-second interval between batches
   COOLDOWN_MINUTES: parseFloat(process.env.COOLDOWN_MINUTES || '0.5'),
 
@@ -36,6 +36,8 @@ module.exports = {
     database: process.env.PGDATABASE || 'postgres',
     user: process.env.PGUSER || 'postgres',
     password: process.env.PGPASSWORD || '8S5]U3@L^Xz)\\FH}',
-    ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: false } : false
+    ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: false } : false,
+    statement_timeout: 15000, // 15-second statement timeout to prevent query hangs
+    connectionTimeoutMillis: 10000 // 10-second connection timeout
   }
 };
