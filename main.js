@@ -116,24 +116,7 @@ async function runAutomationPipeline() {
       await engine.close().catch(() => {});
     }
 
-    // Step D: DUAL REAL-TIME PERSISTENCE (Google Sheets + PostgreSQL)
-    console.log(`\n[Batch ${batchesProcessed}] Syncing data to Google Sheets & PostgreSQL...`);
-    
-    try {
-      console.log(`[GoogleSheetSync] Pushing updated dataset to Google Sheets...`);
-      await syncToGoogleSheets();
-    } catch (sheetErr) {
-      console.error(`[GoogleSheetSync Error] ${sheetErr.message}`);
-    }
-
-    try {
-      console.log(`[PostgresSync] Pushing updated dataset to PostgreSQL database...`);
-      await syncToPostgres();
-    } catch (pgErr) {
-      console.error(`[PostgresSync Error] ${pgErr.message}`);
-    }
-
-    // Step E: Update Pending List
+    // Step D: Update Pending List
     pendingVehicles = getPendingVehicles(allVehicles);
 
     console.log(`\n===============================================================`);
@@ -142,10 +125,32 @@ async function runAutomationPipeline() {
     console.log(` Remaining Vehicles to Process: ${pendingVehicles.length}`);
     console.log(`===============================================================`);
 
-    // Step F: 30-Second Cooldown if more batches remain in this run
+    // Step E: 15-Second Cooldown if more batches remain in this run
     if (pendingVehicles.length > 0 && batchesProcessed < maxBatches) {
       await runCooldownTimer(cooldownSecs);
     }
+  }
+
+  // Step F: CONSOLIDATED FINAL SYNCHRONIZATION (Google Sheets + PostgreSQL)
+  // Executes once after all batches are scraped to maximize speed and eliminate repetitive network payloads
+  console.log(`\n===============================================================`);
+  console.log(` [FINAL DATA SYNC] Pushing consolidated dataset to Google Sheets & PostgreSQL...`);
+  console.log(`===============================================================`);
+  
+  try {
+    console.log(`[GoogleSheetSync] Pushing master dataset to Google Sheet (${config.TARGET_SHEET_ID})...`);
+    await syncToGoogleSheets();
+    console.log(`[GoogleSheetSync] Master Google Sheet updated successfully.`);
+  } catch (sheetErr) {
+    console.error(`[GoogleSheetSync Error] ${sheetErr.message}`);
+  }
+
+  try {
+    console.log(`[PostgresSync] Pushing master dataset to PostgreSQL (${config.PG_CONFIG.host})...`);
+    await syncToPostgres();
+    console.log(`[PostgresSync] PostgreSQL database updated successfully.`);
+  } catch (pgErr) {
+    console.error(`[PostgresSync Error] ${pgErr.message}`);
   }
 
   console.log(`\n===============================================================`);
