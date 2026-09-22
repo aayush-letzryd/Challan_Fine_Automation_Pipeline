@@ -25,6 +25,24 @@ async function runCooldownTimer(seconds = 15) {
 }
 
 /**
+ * Resets the DB checkpoint at the start of every fresh pipeline run.
+ * This ensures the scraper re-checks all vehicles each day for new/paid challans.
+ */
+async function resetCheckpoint() {
+  const { Client } = require('pg');
+  const client = new Client(config.PG_CONFIG);
+  try {
+    await client.connect();
+    await client.query('TRUNCATE TABLE challan_scrape_checkpoint;');
+    await client.end();
+    console.log(`[Checkpoint] Daily checkpoint reset complete. All vehicles queued for fresh scrape.`);
+  } catch (err) {
+    console.warn(`[Checkpoint Warning] Could not reset checkpoint table: ${err.message}`);
+    await client.end().catch(() => {});
+  }
+}
+
+/**
  * Optimized Live Pipeline Controller (PostgreSQL Native Ingestion & Reconciliation)
  */
 async function runAutomationPipeline() {
@@ -38,17 +56,20 @@ async function runAutomationPipeline() {
   console.log(`* Max Batches Scheduled: ${config.MAX_BATCHES}`);
   console.log(`* Inter-Batch Cooldown: ${cooldownSecs} seconds`);
 
+  // 0. Reset checkpoint at start of each fresh daily run so all vehicles are re-scraped
+  await resetCheckpoint();
+
   // 1. Fetch Live Bangalore Fleet List directly from PostgreSQL (core_vehicle_onboarding)
   const allVehicles = await loadVehicleNumbers();
   console.log(`[Main] Total Bangalore (KA) vehicles loaded: ${allVehicles.length}`);
 
-  // 2. Identify Pending Unscraped Vehicles using DB Checkpoint
+  // 2. Identify Pending Unscraped Vehicles (after reset, this will be the full fleet)
   let pendingVehicles = await getPendingVehiclesAsync(allVehicles);
   const alreadyCompleted = allVehicles.length - pendingVehicles.length;
   console.log(`[Main] Status: Total=${allVehicles.length} | Completed=${alreadyCompleted} | Pending=${pendingVehicles.length}\n`);
 
   if (pendingVehicles.length === 0) {
-    console.log('🎉 All Bangalore vehicles have been scraped and reconciled in DB!');
+    console.log('All vehicles processed in this run.');
     return;
   }
 
