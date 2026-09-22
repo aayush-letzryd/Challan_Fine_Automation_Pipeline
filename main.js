@@ -1,66 +1,59 @@
 const config = require('./config');
-const { loadVehiclesFromExcel } = require('./vehicle_reader');
-const { isProcessed, markProcessed, getPendingVehicles, getProcessedCount } = require('./checkpoint');
+const { loadVehicleNumbers } = require('./vehicle_reader');
+const { getPendingVehiclesAsync, markVehicleProcessedInDB } = require('./checkpoint');
 const ChallanBrowserEngine = require('./browser_engine');
-const { appendRecordsToCsv } = require('./gsheet_sync');
-const { syncToGoogleSheets } = require('./sync_to_sheet');
-const { syncToPostgres } = require('./db_sync');
+const { syncBatchToPostgres } = require('./db_sync');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Runs a formatted countdown for the inter-batch cooldown period.
+ * Runs a formatted countdown for inter-batch cooldown periods.
  */
-async function runCooldownTimer(seconds = 30) {
+async function runCooldownTimer(seconds = 15) {
   console.log(`\n===============================================================`);
   console.log(` [COOLDOWN] Waiting ${seconds} seconds before starting next batch...`);
   console.log(`===============================================================`);
 
   let remaining = seconds;
   while (remaining > 0) {
-    console.log(`[Cooldown Timer] ${remaining} second(s) remaining until next batch session...`);
+    console.log(`[Cooldown Timer] ${remaining} second(s) remaining...`);
     const step = Math.min(5, remaining);
     await delay(step * 1000);
     remaining -= step;
   }
-  console.log(`[Cooldown Timer] Cooldown complete! Initiating next batch session...\n`);
+  console.log(`[Cooldown Timer] Cooldown complete! Initiating next batch...\n`);
 }
 
 /**
- * Main Multi-Batch Automation Pipeline Execution Controller
+ * Optimized Live Pipeline Controller (PostgreSQL Native Ingestion & Reconciliation)
  */
 async function runAutomationPipeline() {
-  const cooldownSecs = config.COOLDOWN_SECONDS || (config.COOLDOWN_MINUTES ? Math.round(config.COOLDOWN_MINUTES * 60) : 30);
+  const cooldownSecs = config.COOLDOWN_SECONDS || 15;
 
   console.log('===============================================================');
-  console.log('  CHALLAN DATA AUTOMATION PIPELINE - KARNATAKA ONE PORTAL');
+  console.log('  OPTIMIZED CHALLAN AUTOMATION PIPELINE (KARNATAKA ONE PORTAL)');
   console.log('===============================================================');
-  console.log(`* Target Google Sheet ID: ${config.TARGET_SHEET_ID}`);
-  console.log(`* Target Google Sheet URL: https://docs.google.com/spreadsheets/d/${config.TARGET_SHEET_ID}/edit?usp=sharing`);
   console.log(`* Target PostgreSQL Database: ${config.PG_CONFIG.database} on ${config.PG_CONFIG.host}`);
   console.log(`* Batch Size: ${config.BATCH_SIZE} vehicles per session`);
-  console.log(`* Max Batches Scheduled: ${config.MAX_BATCHES} (${config.BATCH_SIZE * config.MAX_BATCHES} vehicles max)`);
+  console.log(`* Max Batches Scheduled: ${config.MAX_BATCHES}`);
   console.log(`* Inter-Batch Cooldown: ${cooldownSecs} seconds`);
 
-  // 1. Load Master Vehicles List from Excel
-  const allVehicles = loadVehiclesFromExcel(config.EXCEL_FILE_PATH);
-  console.log(`[Main] Total vehicles in source list: ${allVehicles.length}`);
+  // 1. Fetch Live Bangalore Fleet List directly from PostgreSQL (core_vehicle_onboarding)
+  const allVehicles = await loadVehicleNumbers();
+  console.log(`[Main] Total Bangalore (KA) vehicles loaded: ${allVehicles.length}`);
 
-  // 2. Identify Pending Vehicles
-  let pendingVehicles = getPendingVehicles(allVehicles);
-  const alreadyCompleted = getProcessedCount();
-  console.log(`[Main] Summary: Total=${allVehicles.length} | Already Completed=${alreadyCompleted} | Pending=${pendingVehicles.length}\n`);
+  // 2. Identify Pending Unscraped Vehicles using DB Checkpoint
+  let pendingVehicles = await getPendingVehiclesAsync(allVehicles);
+  const alreadyCompleted = allVehicles.length - pendingVehicles.length;
+  console.log(`[Main] Status: Total=${allVehicles.length} | Completed=${alreadyCompleted} | Pending=${pendingVehicles.length}\n`);
 
   if (pendingVehicles.length === 0) {
-    console.log('🎉 All vehicles have already been completely processed!');
-    // Final sync to ensure dual consistency
-    await syncToGoogleSheets().catch(() => {});
-    await syncToPostgres().catch(() => {});
+    console.log('🎉 All Bangalore vehicles have been scraped and reconciled in DB!');
     return;
   }
 
   const batchSize = config.BATCH_SIZE || 50;
-  const maxBatches = config.MAX_BATCHES || 10;
+  const maxBatches = config.MAX_BATCHES || 30;
   let batchesProcessed = 0;
 
   while (pendingVehicles.length > 0 && batchesProcessed < maxBatches) {
@@ -73,10 +66,10 @@ async function runAutomationPipeline() {
     console.log(`===============================================================`);
 
     const engine = new ChallanBrowserEngine();
-    let batchSuccess = false;
+    const batchRecords = [];
 
     try {
-      // Step A: Launch Fresh Browser & Authenticate with SMS OTP
+      // Step A: Launch Browser & Authenticate with SMS OTP
       await engine.initBrowser();
       await engine.loginWithOTP();
 
@@ -87,77 +80,54 @@ async function runAutomationPipeline() {
 
         try {
           const records = await engine.scrapeVehicleChallan(vehicle);
-          
-          // Save records immediately to master CSV
-          appendRecordsToCsv(records);
+          batchRecords.push(...records);
 
-          // Mark vehicle completed in checkpoint
-          markProcessed(vehicle.clean, {
+          // Mark vehicle completed in DB Checkpoint
+          await markVehicleProcessedInDB(vehicle.clean, {
             totalFine: records[0]?.totalAmountPending || 0,
             noticeCount: records.filter(r => r.noticeNo !== 'N/A' && r.noticeNo !== 'ERROR').length,
-            status: records[0]?.status || 'PROCESSED',
-            rcHolderName: records[0]?.rcHolderName || 'N/A'
+            status: records[0]?.status || 'PROCESSED'
           });
 
         } catch (err) {
           console.error(`[Main Error] Failed processing vehicle ${vehicle.clean}: ${err.message}`);
         }
 
-        // Brief anti-throttling buffer between vehicles
         await delay(1200);
       }
 
-      batchSuccess = true;
     } catch (batchErr) {
       console.error(`\n[Main Batch Error] Batch ${batchesProcessed} encountered an error: ${batchErr.message}`);
     } finally {
-      // Step C: Cleanly close browser session
       await engine.resetSearchSession().catch(() => {});
       await engine.close().catch(() => {});
     }
 
+    // Step C: IMMEDIATE PER-BATCH TRANSACTIONAL POSTGRESQL SYNC & RECONCILIATION
+    if (batchRecords.length > 0) {
+      console.log(`\n[Batch ${batchesProcessed} Sync] Saving ${batchRecords.length} records directly to PostgreSQL...`);
+      await syncBatchToPostgres(batchRecords, currentBatchVehicles).catch(e => {
+        console.error(`[Batch ${batchesProcessed} Sync Error] ${e.message}`);
+      });
+    }
+
     // Step D: Update Pending List
-    pendingVehicles = getPendingVehicles(allVehicles);
+    pendingVehicles = await getPendingVehiclesAsync(allVehicles);
 
     console.log(`\n===============================================================`);
-    console.log(` [BATCH ${batchesProcessed} COMPLETE] Processed ${currentBatchVehicles.length} vehicles.`);
-    console.log(` Total Fleet Completed: ${getProcessedCount()}/${allVehicles.length}`);
+    console.log(` [BATCH ${batchesProcessed} COMPLETE] Synced ${currentBatchVehicles.length} vehicles to DB.`);
     console.log(` Remaining Vehicles to Process: ${pendingVehicles.length}`);
     console.log(`===============================================================`);
 
-    // Step E: 15-Second Cooldown if more batches remain in this run
     if (pendingVehicles.length > 0 && batchesProcessed < maxBatches) {
       await runCooldownTimer(cooldownSecs);
     }
   }
 
-  // Step F: CONSOLIDATED FINAL SYNCHRONIZATION (Google Sheets + PostgreSQL)
-  // Executes once after all batches are scraped to maximize speed and eliminate repetitive network payloads
   console.log(`\n===============================================================`);
-  console.log(` [FINAL DATA SYNC] Pushing consolidated dataset to Google Sheets & PostgreSQL...`);
-  console.log(`===============================================================`);
-  
-  try {
-    console.log(`[GoogleSheetSync] Pushing master dataset to Google Sheet (${config.TARGET_SHEET_ID})...`);
-    await syncToGoogleSheets();
-    console.log(`[GoogleSheetSync] Master Google Sheet updated successfully.`);
-  } catch (sheetErr) {
-    console.error(`[GoogleSheetSync Error] ${sheetErr.message}`);
-  }
-
-  try {
-    console.log(`[PostgresSync] Pushing master dataset to PostgreSQL (${config.PG_CONFIG.host})...`);
-    await syncToPostgres();
-    console.log(`[PostgresSync] PostgreSQL database updated successfully.`);
-  } catch (pgErr) {
-    console.error(`[PostgresSync Error] ${pgErr.message}`);
-  }
-
-  console.log(`\n===============================================================`);
-  console.log(` [PIPELINE RUN COMPLETED FOR TODAY]`);
+  console.log(` [PIPELINE RUN COMPLETED]`);
   console.log(` Batches Executed: ${batchesProcessed}/${maxBatches}`);
-  console.log(` Total Vehicles Completed: ${getProcessedCount()}/${allVehicles.length}`);
-  console.log(` Live Google Sheet: https://docs.google.com/spreadsheets/d/${config.TARGET_SHEET_ID}/edit?usp=sharing`);
+  console.log(` Total Vehicles Synced: ${allVehicles.length - pendingVehicles.length}/${allVehicles.length}`);
   console.log(` PostgreSQL Table: vehicle_challans (${config.PG_CONFIG.host})`);
   console.log(`===============================================================\n`);
 }

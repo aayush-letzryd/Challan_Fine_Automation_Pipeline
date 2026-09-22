@@ -1,154 +1,95 @@
-const fs = require('fs');
-const path = require('path');
 const { Client } = require('pg');
 const config = require('./config');
 
-const CSV_PATH = config.LOCAL_RESULTS_CSV || path.resolve(__dirname, 'challan_results.csv');
-
 /**
- * Parses raw CSV content with strict CRLF sanitization and quote-aware cell splitting.
+ * Direct Transactional PostgreSQL Synchronizer & Reconciliation Engine.
+ * 1. Upserts newly scraped active violation records with payment_status = 'UNPAID'.
+ * 2. Reconciles missing notices: If an active UNPAID notice in DB is missing from fresh portal results,
+ *    marks it as payment_status = 'PAID' and paid_at = CURRENT_TIMESTAMP.
  */
-function parseCsvContent(content) {
-  const cleanContent = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  const lines = cleanContent.split('\n').filter(line => line.trim().length > 0);
-  if (lines.length <= 1) return [];
-
-  const rows = [];
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i];
-    const cells = [];
-    let insideQuotes = false;
-    let currentCell = '';
-
-    for (let c = 0; c < line.length; c++) {
-      const char = line[c];
-      if (char === '"' && (c === 0 || line[c - 1] !== '\\')) {
-        insideQuotes = !insideQuotes;
-      } else if (char === ',' && !insideQuotes) {
-        cells.push(currentCell.replace(/^"|"$/g, '').replace(/""/g, '"').trim());
-        currentCell = '';
-      } else {
-        currentCell += char;
-      }
-    }
-    cells.push(currentCell.replace(/^"|"$/g, '').replace(/""/g, '"').trim());
-    
-    // Ignore dummy error rows from previous runs
-    const status = cells[11] || 'PROCESSED';
-    const offenceDesc = cells[8] || '';
-    if (status === 'ERROR' || offenceDesc.startsWith('SCRAPE_ERROR')) {
-      continue;
-    }
-
-    rows.push(cells);
+async function syncBatchToPostgres(batchRecords, processedVehicleList = []) {
+  if (!batchRecords || batchRecords.length === 0) {
+    console.log(`[PostgresSync] No records in batch to sync.`);
+    return true;
   }
 
-  return rows;
-}
-
-/**
- * Sequence-Safe PostgreSQL Synchronizer.
- * Uses a Temporary Staging Table + Two-Stage CTE with Transactional Advisory Lock
- * to ensure ZERO primary key sequence burning on updates.
- */
-async function syncToPostgres(existingClient = null) {
   console.log(`\n======================================================`);
-  console.log(`[PostgresSync] Syncing data to PostgreSQL Database...`);
+  console.log(`[PostgresSync] Transactional DB Syncing ${batchRecords.length} record(s) for ${processedVehicleList.length} vehicle(s)...`);
   console.log(`======================================================\n`);
 
-  if (!fs.existsSync(CSV_PATH)) {
-    console.log(`[PostgresSync] No CSV file found at: ${CSV_PATH}`);
-    return false;
-  }
-
-  const shouldClose = !existingClient;
-  const client = existingClient || new Client(config.PG_CONFIG);
+  const client = new Client(config.PG_CONFIG);
 
   try {
-    if (!existingClient) {
-      await client.connect();
-      console.log(`[PostgresSync] Connected to PostgreSQL: ${config.PG_CONFIG.database} on ${config.PG_CONFIG.host}`);
-    } else {
-      console.log(`[PostgresSync] Reusing active PostgreSQL connection.`);
-    }
-
-    // Parse CSV rows
-    const content = fs.readFileSync(CSV_PATH, 'utf-8');
-    const rows = parseCsvContent(content);
-
-    if (rows.length === 0) {
-      console.log(`[PostgresSync] No valid data rows to insert.`);
-      await client.end();
-      return true;
-    }
-
-    console.log(`[PostgresSync] Ingesting ${rows.length} record(s) with Sequence-Safe Advisory Lock...`);
-
+    await client.connect();
     await client.query('BEGIN');
 
-    // 1. Transactional Advisory Lock (Prevents concurrent race conditions)
+    // 1. Transactional Advisory Lock to prevent concurrency race conditions
     await client.query('SELECT pg_advisory_xact_lock(7483731338)');
 
-    // 3. Create Temporary Staging Table
-    await client.query(`
-      CREATE TEMP TABLE tmp_sync_challans (
-        vehicle_reg_no VARCHAR(20),
-        rc_holder_name VARCHAR(255),
-        total_amount_pending NUMERIC(10, 2),
-        notice_no VARCHAR(100),
-        notice_generation_date VARCHAR(50),
-        violation_date VARCHAR(50),
-        violation_time VARCHAR(50),
-        point_name TEXT,
-        offence_description TEXT,
-        fine_amount NUMERIC(10, 2),
-        scraped_timestamp VARCHAR(50),
-        status VARCHAR(50)
-      ) ON COMMIT DROP;
-    `);
+    // 2. Filter out error records
+    const validRecords = batchRecords.filter(r => r && r.status !== 'ERROR' && !String(r.offenceDescription).startsWith('SCRAPE_ERROR'));
 
-    // 4. Bulk populate Temporary Staging Table
-    const CHUNK_SIZE = 50;
-    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-      const chunk = rows.slice(i, i + CHUNK_SIZE);
-      const values = [];
-      const valueClauses = [];
+    if (validRecords.length > 0) {
+      // 3. Create Temporary Staging Table
+      await client.query(`
+        CREATE TEMP TABLE tmp_sync_challans (
+          vehicle_reg_no VARCHAR(20),
+          rc_holder_name VARCHAR(255),
+          total_amount_pending NUMERIC(10, 2),
+          notice_no VARCHAR(100),
+          notice_generation_date VARCHAR(50),
+          violation_date VARCHAR(50),
+          violation_time VARCHAR(50),
+          point_name TEXT,
+          offence_description TEXT,
+          fine_amount NUMERIC(10, 2),
+          scraped_timestamp VARCHAR(50),
+          status VARCHAR(50),
+          payment_status VARCHAR(20)
+        ) ON COMMIT DROP;
+      `);
 
-      chunk.forEach((r, idx) => {
-        const offset = idx * 12;
-        valueClauses.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12})`);
+      // 4. Populate Staging Table
+      const CHUNK_SIZE = 50;
+      for (let i = 0; i < validRecords.length; i += CHUNK_SIZE) {
+        const chunk = validRecords.slice(i, i + CHUNK_SIZE);
+        const values = [];
+        const valueClauses = [];
 
-        values.push(
-          r[0] || 'N/A',
-          r[1] || 'N/A',
-          parseFloat(r[2]) || 0,
-          r[3] || 'N/A',
-          r[4] || 'N/A',
-          r[5] || 'N/A',
-          r[6] || 'N/A',
-          r[7] || 'N/A',
-          r[8] || 'N/A',
-          parseFloat(r[9]) || 0,
-          r[10] || 'N/A',
-          r[11] || 'PROCESSED'
-        );
-      });
+        chunk.forEach((r, idx) => {
+          const offset = idx * 13;
+          valueClauses.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13})`);
 
-      const chunkQuery = `
-        INSERT INTO tmp_sync_challans (
-          vehicle_reg_no, rc_holder_name, total_amount_pending, notice_no,
-          notice_generation_date, violation_date, violation_time, point_name,
-          offence_description, fine_amount, scraped_timestamp, status
-        ) VALUES ${valueClauses.join(', ')}
-      `;
+          values.push(
+            r.vehicleRegNo || 'N/A',
+            r.rcHolderName || 'N/A',
+            parseFloat(r.totalAmountPending) || 0,
+            r.noticeNo || 'N/A',
+            r.noticeGenerationDate || 'N/A',
+            r.violationDate || 'N/A',
+            r.violationTime || 'N/A',
+            r.pointName || 'N/A',
+            r.offenceDescription || 'N/A',
+            parseFloat(r.fineAmount) || 0,
+            r.scrapedTimestamp || new Date().toISOString(),
+            r.status || 'HAS_FINES',
+            'UNPAID'
+          );
+        });
 
-      await client.query(chunkQuery, values);
-    }
+        const chunkQuery = `
+          INSERT INTO tmp_sync_challans (
+            vehicle_reg_no, rc_holder_name, total_amount_pending, notice_no,
+            notice_generation_date, violation_date, violation_time, point_name,
+            offence_description, fine_amount, scraped_timestamp, status, payment_status
+          ) VALUES ${valueClauses.join(', ')}
+        `;
 
-    // 5. Stage 1: UPDATE existing records (Only update if data actually changed to avoid trigger overhead)
-    let updateResult;
-    try {
-      updateResult = await client.query(`
+        await client.query(chunkQuery, values);
+      }
+
+      // 5. Stage 1: Update Existing Matching Records
+      const updateResult = await client.query(`
         UPDATE vehicle_challans v
         SET rc_holder_name = t.rc_holder_name,
             total_amount_pending = t.total_amount_pending,
@@ -158,37 +99,29 @@ async function syncToPostgres(existingClient = null) {
             point_name = t.point_name,
             fine_amount = t.fine_amount,
             scraped_timestamp = t.scraped_timestamp,
+            payment_status = 'UNPAID',
             status = t.status,
+            last_scraped_at = CURRENT_TIMESTAMP,
             updated_at = CURRENT_TIMESTAMP
         FROM tmp_sync_challans t
         WHERE v.vehicle_reg_no = t.vehicle_reg_no
           AND v.notice_no = t.notice_no
-          AND v.offence_description = t.offence_description
-          AND (
-            v.total_amount_pending IS DISTINCT FROM t.total_amount_pending OR
-            v.rc_holder_name IS DISTINCT FROM t.rc_holder_name OR
-            v.fine_amount IS DISTINCT FROM t.fine_amount OR
-            v.status IS DISTINCT FROM t.status
-          );
+          AND v.offence_description = t.offence_description;
       `);
-    } catch (e) {
-      console.error(`[PostgresSync Stage 1 UPDATE Error] ${e.message}`);
-      throw e;
-    }
 
-    // 6. Stage 2: INSERT ONLY genuinely new records
-    let insertResult;
-    try {
-      insertResult = await client.query(`
+      // 6. Stage 2: Insert Genuinely New Violations
+      const insertResult = await client.query(`
         INSERT INTO vehicle_challans (
           vehicle_reg_no, rc_holder_name, total_amount_pending, notice_no,
           notice_generation_date, violation_date, violation_time, point_name,
-          offence_description, fine_amount, scraped_timestamp, status, updated_at
+          offence_description, fine_amount, scraped_timestamp, payment_status, status,
+          first_scraped_at, last_scraped_at, updated_at
         )
         SELECT DISTINCT ON (t.vehicle_reg_no, t.notice_no, t.offence_description)
           t.vehicle_reg_no, t.rc_holder_name, t.total_amount_pending, t.notice_no,
           t.notice_generation_date, t.violation_date, t.violation_time, t.point_name,
-          t.offence_description, t.fine_amount, t.scraped_timestamp, t.status, CURRENT_TIMESTAMP
+          t.offence_description, t.fine_amount, t.scraped_timestamp, 'UNPAID', t.status,
+          CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
         FROM tmp_sync_challans t
         WHERE NOT EXISTS (
           SELECT 1 FROM vehicle_challans v
@@ -197,42 +130,54 @@ async function syncToPostgres(existingClient = null) {
             AND v.offence_description = t.offence_description
         );
       `);
-    } catch (e) {
-      console.error(`[PostgresSync Stage 2 INSERT Error] ${e.message}`);
-      throw e;
+
+      console.log(`[PostgresSync] Stage 1 Updated: ${updateResult.rowCount} existing row(s), Stage 2 Inserted: ${insertResult.rowCount} new row(s).`);
     }
 
-    // 7. Clean up any legacy error entries from staging
-    await client.query(`
-      DELETE FROM vehicle_challans 
-      WHERE status = 'ERROR' OR offence_description LIKE 'SCRAPE_ERROR%';
-    `);
+    // 7. Stage 3: RECONCILIATION ENGINE (Detect & Mark Paid Challans)
+    // For vehicles processed in this batch, check active UNPAID notices in DB that were NOT returned by portal
+    if (processedVehicleList.length > 0) {
+      const cleanRegNos = processedVehicleList.map(v => typeof v === 'string' ? v : (v.clean || v.original));
+      const scrapedNoticeNos = validRecords.map(r => r.noticeNo).filter(n => n && n !== 'N/A');
+
+      let reconcileQuery = `
+        UPDATE vehicle_challans
+        SET payment_status = 'PAID',
+            paid_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE vehicle_reg_no = ANY($1)
+          AND payment_status = 'UNPAID'
+          AND notice_no != 'N/A'
+      `;
+
+      const queryParams = [cleanRegNos];
+
+      if (scrapedNoticeNos.length > 0) {
+        reconcileQuery += ` AND notice_no != ANY($2)`;
+        queryParams.push(scrapedNoticeNos);
+      }
+
+      const reconcileResult = await client.query(reconcileQuery, queryParams);
+      if (reconcileResult.rowCount > 0) {
+        console.log(`[Reconciliation Engine] 🎉 Detected & marked ${reconcileResult.rowCount} notice(s) as PAID/SETTLED in PostgreSQL!`);
+      }
+    }
 
     await client.query('COMMIT');
-
-    console.log(`[PostgresSync] SUCCESS! Updated: ${updateResult.rowCount} existing row(s), Inserted: ${insertResult.rowCount} new row(s).`);
-    if (shouldClose) {
-      await client.end();
-    }
+    await client.end();
     return true;
 
   } catch (err) {
     if (client) {
       await client.query('ROLLBACK').catch(() => {});
-      if (shouldClose) {
-        await client.end().catch(() => {});
-      }
+      await client.end().catch(() => {});
     }
     console.error(`[PostgresSync Error] ${err.message}`);
     return false;
   }
 }
 
-if (require.main === module) {
-  syncToPostgres().catch(e => console.error('[PostgresSync]', e.message));
-}
-
 module.exports = {
-  syncToPostgres,
-  parseCsvContent
+  syncBatchToPostgres,
+  syncToPostgres: syncBatchToPostgres
 };
