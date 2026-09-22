@@ -7,26 +7,7 @@ const { syncBatchToPostgres } = require('./db_sync');
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Runs a formatted countdown for inter-batch cooldown periods.
- */
-async function runCooldownTimer(seconds = 15) {
-  console.log(`\n===============================================================`);
-  console.log(` [COOLDOWN] Waiting ${seconds} seconds before starting next batch...`);
-  console.log(`===============================================================`);
-
-  let remaining = seconds;
-  while (remaining > 0) {
-    console.log(`[Cooldown Timer] ${remaining} second(s) remaining...`);
-    const step = Math.min(5, remaining);
-    await delay(step * 1000);
-    remaining -= step;
-  }
-  console.log(`[Cooldown Timer] Cooldown complete! Initiating next batch...\n`);
-}
-
-/**
  * Resets the DB checkpoint at the start of every fresh pipeline run.
- * This ensures the scraper re-checks all vehicles each day for new/paid challans.
  */
 async function resetCheckpoint() {
   const { Client } = require('pg');
@@ -35,127 +16,126 @@ async function resetCheckpoint() {
     await client.connect();
     await client.query('TRUNCATE TABLE challan_scrape_checkpoint;');
     await client.end();
-    console.log(`[Checkpoint] Daily checkpoint reset complete. All vehicles queued for fresh scrape.`);
+    console.log(`[Checkpoint] Daily checkpoint reset. All vehicles queued for fresh scrape.`);
   } catch (err) {
-    console.warn(`[Checkpoint Warning] Could not reset checkpoint table: ${err.message}`);
+    console.warn(`[Checkpoint Warning] Could not reset checkpoint: ${err.message}`);
     await client.end().catch(() => {});
   }
 }
 
 /**
- * Optimized Live Pipeline Controller (PostgreSQL Native Ingestion & Reconciliation)
+ * Main Pipeline:
+ * - Login with OTP ONCE at the start
+ * - Keep browser open for ALL batches
+ * - Between batches: wait 60 seconds + page refresh (no re-login)
+ * - Close browser only at the very end
  */
 async function runAutomationPipeline() {
-  const cooldownSecs = config.COOLDOWN_SECONDS || 15;
+  const batchSize = config.BATCH_SIZE || 50;
+  const maxBatches = config.MAX_BATCHES || 30;
 
   console.log('===============================================================');
-  console.log('  OPTIMIZED CHALLAN AUTOMATION PIPELINE (KARNATAKA ONE PORTAL)');
+  console.log('  CHALLAN PIPELINE - SINGLE SESSION (NO PER-BATCH RE-AUTH)');
   console.log('===============================================================');
-  console.log(`* Target PostgreSQL Database: ${config.PG_CONFIG.database} on ${config.PG_CONFIG.host}`);
-  console.log(`* Batch Size: ${config.BATCH_SIZE} vehicles per session`);
-  console.log(`* Max Batches Scheduled: ${config.MAX_BATCHES}`);
-  console.log(`* Inter-Batch Cooldown: ${cooldownSecs} seconds`);
+  console.log(`* DB: ${config.PG_CONFIG.database} on ${config.PG_CONFIG.host}`);
+  console.log(`* Batch Size: ${batchSize} | Max Batches: ${maxBatches}`);
+  console.log(`* Inter-Batch: 60s wait + page refresh (NO new login)`);
 
-  // 0. Reset checkpoint at start of each fresh daily run so all vehicles are re-scraped
+  // 0. Reset daily checkpoint
   await resetCheckpoint();
 
-  // 1. Fetch Live Bangalore Fleet List directly from PostgreSQL (core_vehicle_onboarding)
+  // 1. Load live Bangalore fleet
   const allVehicles = await loadVehicleNumbers();
-  console.log(`[Main] Total Bangalore (KA) vehicles loaded: ${allVehicles.length}`);
-
-  // 2. Identify Pending Unscraped Vehicles (after reset, this will be the full fleet)
   let pendingVehicles = await getPendingVehiclesAsync(allVehicles);
-  const alreadyCompleted = allVehicles.length - pendingVehicles.length;
-  console.log(`[Main] Status: Total=${allVehicles.length} | Completed=${alreadyCompleted} | Pending=${pendingVehicles.length}\n`);
+  console.log(`[Main] Total: ${allVehicles.length} | Pending: ${pendingVehicles.length}\n`);
 
   if (pendingVehicles.length === 0) {
-    console.log('All vehicles processed in this run.');
+    console.log('All vehicles already processed.');
     return;
   }
 
-  const batchSize = config.BATCH_SIZE || 50;
-  const maxBatches = config.MAX_BATCHES || 30;
+  // 2. Launch browser and login ONCE
+  const engine = new ChallanBrowserEngine();
+  await engine.initBrowser();
+  await engine.loginWithOTP();
+  console.log(`\n[Main] Logged in. Browser will stay open for entire run.\n`);
+
   let batchesProcessed = 0;
+  let totalScraped = 0;
 
-  while (pendingVehicles.length > 0 && batchesProcessed < maxBatches) {
-    batchesProcessed++;
-    const currentBatchVehicles = pendingVehicles.slice(0, batchSize);
+  try {
+    while (pendingVehicles.length > 0 && batchesProcessed < maxBatches) {
+      batchesProcessed++;
+      const currentBatch = pendingVehicles.slice(0, batchSize);
 
-    console.log(`\n===============================================================`);
-    console.log(` [BATCH ${batchesProcessed}/${maxBatches}] Processing ${currentBatchVehicles.length} vehicle(s)...`);
-    console.log(` Remaining in Fleet: ${pendingVehicles.length}`);
-    console.log(`===============================================================`);
+      console.log(`\n===============================================================`);
+      console.log(` [BATCH ${batchesProcessed}] Processing ${currentBatch.length} vehicles...`);
+      console.log(` Fleet Remaining: ${pendingVehicles.length}`);
+      console.log(`===============================================================`);
 
-    const engine = new ChallanBrowserEngine();
-    const batchRecords = [];
+      const batchRecords = [];
 
-    try {
-      // Step A: Launch Browser & Authenticate with SMS OTP
-      await engine.initBrowser();
-      await engine.loginWithOTP();
-
-      // Step B: Scrape Each Vehicle in the Batch
-      for (let i = 0; i < currentBatchVehicles.length; i++) {
-        const vehicle = currentBatchVehicles[i];
-        console.log(`\n[Progress] Batch ${batchesProcessed} - Vehicle ${i + 1}/${currentBatchVehicles.length} (${vehicle.clean})`);
+      // Scrape each vehicle in this batch
+      for (let i = 0; i < currentBatch.length; i++) {
+        const vehicle = currentBatch[i];
+        console.log(`[Progress] Batch ${batchesProcessed} - Vehicle ${i + 1}/${currentBatch.length} (${vehicle.clean})`);
 
         try {
           const records = await engine.scrapeVehicleChallan(vehicle);
           batchRecords.push(...records);
 
-          // Mark vehicle completed in DB Checkpoint
           await markVehicleProcessedInDB(vehicle.clean, {
             totalFine: records[0]?.totalAmountPending || 0,
-            noticeCount: records.filter(r => r.noticeNo !== 'N/A' && r.noticeNo !== 'ERROR').length,
+            noticeCount: records.filter(r => r.noticeNo !== 'N/A').length,
             status: records[0]?.status || 'PROCESSED'
           });
 
+          totalScraped++;
         } catch (err) {
-          console.error(`[Main Error] Failed processing vehicle ${vehicle.clean}: ${err.message}`);
+          console.error(`[Error] ${vehicle.clean}: ${err.message}`);
         }
 
-        await delay(1200);
+        await delay(800);
       }
 
-    } catch (batchErr) {
-      console.error(`\n[Main Batch Error] Batch ${batchesProcessed} encountered an error: ${batchErr.message}`);
-    } finally {
-      await engine.resetSearchSession().catch(() => {});
-      await engine.close().catch(() => {});
+      // Sync this batch to PostgreSQL
+      if (batchRecords.length > 0) {
+        console.log(`\n[Batch ${batchesProcessed} Sync] Saving ${batchRecords.length} records to PostgreSQL...`);
+        await syncBatchToPostgres(batchRecords, currentBatch).catch(e => {
+          console.error(`[Sync Error] ${e.message}`);
+        });
+      }
+
+      // Update pending list
+      pendingVehicles = await getPendingVehiclesAsync(allVehicles);
+      console.log(`[Batch ${batchesProcessed}] Done. Total scraped: ${totalScraped} | Remaining: ${pendingVehicles.length}`);
+
+      // Between batches: 60s wait + page refresh ONLY (NO new browser, NO new login)
+      if (pendingVehicles.length > 0 && batchesProcessed < maxBatches) {
+        console.log(`\n[Cooldown] Waiting 60 seconds then refreshing page...`);
+        await delay(60000);
+        await engine.page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+        await delay(2000);
+        console.log(`[Cooldown] Page refreshed. Continuing next batch...\n`);
+      }
     }
 
-    // Step C: IMMEDIATE PER-BATCH TRANSACTIONAL POSTGRESQL SYNC & RECONCILIATION
-    if (batchRecords.length > 0) {
-      console.log(`\n[Batch ${batchesProcessed} Sync] Saving ${batchRecords.length} records directly to PostgreSQL...`);
-      await syncBatchToPostgres(batchRecords, currentBatchVehicles).catch(e => {
-        console.error(`[Batch ${batchesProcessed} Sync Error] ${e.message}`);
-      });
-    }
-
-    // Step D: Update Pending List
-    pendingVehicles = await getPendingVehiclesAsync(allVehicles);
-
-    console.log(`\n===============================================================`);
-    console.log(` [BATCH ${batchesProcessed} COMPLETE] Synced ${currentBatchVehicles.length} vehicles to DB.`);
-    console.log(` Remaining Vehicles to Process: ${pendingVehicles.length}`);
-    console.log(`===============================================================`);
-
-    if (pendingVehicles.length > 0 && batchesProcessed < maxBatches) {
-      await runCooldownTimer(cooldownSecs);
-    }
+  } finally {
+    // Close browser ONCE at the very end
+    await engine.close().catch(() => {});
+    console.log(`[Main] Browser closed.`);
   }
 
   console.log(`\n===============================================================`);
-  console.log(` [PIPELINE RUN COMPLETED]`);
-  console.log(` Batches Executed: ${batchesProcessed}/${maxBatches}`);
-  console.log(` Total Vehicles Synced: ${allVehicles.length - pendingVehicles.length}/${allVehicles.length}`);
-  console.log(` PostgreSQL Table: vehicle_challans (${config.PG_CONFIG.host})`);
+  console.log(` [PIPELINE COMPLETE]`);
+  console.log(` Vehicles Scraped: ${totalScraped}/${allVehicles.length}`);
+  console.log(` PostgreSQL: vehicle_challans @ ${config.PG_CONFIG.host}`);
   console.log(`===============================================================\n`);
 }
 
 if (require.main === module) {
   runAutomationPipeline().catch((err) => {
-    console.error('Fatal Pipeline Execution Error:', err);
+    console.error('Fatal Pipeline Error:', err);
     process.exit(1);
   });
 }
